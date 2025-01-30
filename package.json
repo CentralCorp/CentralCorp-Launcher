@@ -1,11 +1,11 @@
 {
-    "name": "Conflictura",
-    "preductname": "Conflictura Launcher",
-    "version": "3.0.0",
-    "description": "Conflictura modded server launcher",
+    "name": "Limeria",
+    "preductname": "Limeria Launcher",
+    "version": "1.0.1",
+    "description": "Launcher du meilleur serveur, Limeria",
     "main": "src/app.js",
-    "author": "Riptiaz/Boulldogo/Vexato/Luuxis",
-    "settings": "http://localhost/panel",
+    "author": "Riptiaz/barteX/Luuxis",
+    "settings": "https://webstrator.com/panel/domaine/webftp/4817",
     "engines": {
         "node": "20.x.x"
     },
