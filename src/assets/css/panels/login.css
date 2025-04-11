@@ -1,10 +1,10 @@
 .login-card {
     position: absolute;
-    top: 52%;
+    top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
     width: 35%;
-    background: #121212;
+    background: #000000;
     padding: 20px;
     font: normal normal bold 19px/29px Poppins;
     color: #E1E1E1;
@@ -56,18 +56,34 @@
     left: 50%;
     transform: translate(-50%, -50%);
     width: 35%;
-    background: #121212;
+    background-image: linear-gradient(rgba(107, 54, 255, 0.6), rgba(107, 54, 255, 0.6)),url('../../images/type-2.jpg');
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
     padding: 0 20px;
     font: normal normal bold 19px/29px Poppins;
     color: #E1E1E1;
     border-radius: 15px;
     display: none;
 }
-
+.login-card-mojang-1 {
+    position: absolute;
+    top: 10%;
+    left: 10%;
+    width: 35%;
+    background-image: linear-gradient(rgba(107, 54, 255, 0.6), rgba(107, 54, 255, 0.6)), url('../../images/type-2.jpg');
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    padding: 0 20px;
+    font: normal normal bold 19px/29px Poppins;
+    color: #E1E1E1;
+    border-radius: 15px;
+    display: none;
+}
 .card-body {
     margin: 10%;
 }
-
 .login-card-mojang-input {
     text-align: center;
     display: grid;
@@ -77,12 +93,16 @@
     font-family: 'Poppins';
     letter-spacing: 2px;
     color: #fff;
-    border: solid 0px rgba(0, 0, 0, 0);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    background-color: transparent;
     border-radius: 30px;
-    background-color: #373737;
     padding: 0.375rem 0.75rem;
+    transition: border 1s cubic-bezier(0.075, 0.82, 0.165, 1), background-color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
-
+.login-mojang-input:active, .login-mojang-input:focus{
+    border: 1px solid rgba(0, 0, 0, 0.9);
+    background-color: rgba(0, 0, 0, 0.5);
+}
 .loginDisclaimerText {
     text-align: center;
     font-size: 0.5em;
@@ -99,16 +119,18 @@
     border: none;
     margin: 2% 0;
     height: 2em;
-    background-color: #00bd7a;
-    box-shadow: 0 0 5px #00bd7a;
+    background-color: #571bfc;
+    box-shadow: 0 0 4px 0 rgba(255, 255, 255, 0.15);
     color: #121212;
     font: normal normal bold 19px/29px Poppins;
     cursor: pointer;
+    transition: background-color 1s cubic-bezier(0.075, 0.82, 0.165, 1), color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
 
 .login-btn:hover {
-    background-color: #006e47;
-    box-shadow: 0 0 5px #006e47;
+    background-color: #F1F1F1;
+    color: black;
+    box-shadow: 0 0 5px black;
 }
 
 .cancel {
@@ -132,12 +154,20 @@
     cursor: pointer;
     color: #fff;
     text-decoration: none;
+    transition: color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
-
+.new-user:focus, .new-user:hover{
+    color: black;
+}
+.password-reset:focus,
+.password-reset:hover {
+    color: black;
+}
 .new-user {
     cursor: pointer;
     color: #fff;
     text-decoration: none;
+    transition: color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
 .login-btn-2f {
     border-radius: 15px;
