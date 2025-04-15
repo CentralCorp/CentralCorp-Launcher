@@ -1,55 +1,149 @@
 <div class="login-content">
-    <div class="login-card">
-        <p id="login-title"></p>
-        <div class="login-type">
+  <div class="login-card">
+    <div>
+      <p id="login-title" class=""></p>
+      <div class="login-type">
+        <div class="link-login-div">
+          <img
+            src="./assets/images/orig.png"
+            alt=""
+            width="200px"
+            height="200px"
+          />
+          <div class="link-a-login">
             <button class="mojang login-type-btn" id="web-login-btn"></button>
-        </div>
-        <button class="cancel cancel-login" id="cancel-login-btn" style="display: none;"></button>
-    </div>
-
-    <div class="a2f-card" style="display: none;">
-        <div class="info-login-2f" id="info-login-2f"></div>
-        <div class="label-2f">
-            <p id="a2f-label"></p>
-        </div>
-        <div class="a2f-enter">
-            <input type="text" class="a2f login-mojang-input" spellcheck="false">
-        </div>
-        <button class="login-btn-2f" id="a2f-login-btn"></button>
-        <button class="cancel cancel-2f" id="cancel-a2f-btn"></button>
-    </div>
-
-    <div class="email-verify-card" style="display: none;">
-        <div class="info-login-email" id="info-login-email"></div>
-        <p id="email-verify-label"></p>
-        <button class="cancel cancel-email" id="cancel-email-btn"></button>
-    </div>
-
-    <div class="login-card-mojang">
-        <div class="card-body">
-            <small class="info-login" id="info-login"></small>
-
-            <div class="login-card-mojang-input">
-                <label id="username-label"></label>
-                <input type="text" class="Mail login-mojang-input" spellcheck="false">
-                <small class="error-mail">&nbsp;</small>
+            <a
+              href="https://www.uacraft.fun/user/register"
+              target="_blank"
+              class="a-login-size reg-a"
+              id="a-link-op-browse"
+            ></a>
+            <div>
+              <ul class="svg-link">
+                <li>
+                  <a
+                    href="https://www.tiktok.com/@_uacraft_"
+                    class="test"
+                    target="_blank"
+                  >
+                    <svg width="30" height="30" class="svg-icon">
+                      <use
+                        href="./assets/images/symbol-defs.svg#icon-tiktok-1"
+                      ></use>
+                    </svg>
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://www.instagram.com/_uacraft.fun_/"
+                    target="_blank"
+                  >
+                    <svg width="30" height="30" class="svg-icon">
+                      <use
+                        href="./assets/images/symbol-defs.svg#icon-instagram"
+                      ></use>
+                    </svg>
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://discord.com/invite/jQXyHzmmHm"
+                    target="_blank"
+                  >
+                    <svg width="30" height="30" class="svg-icon">
+                      <use
+                        href="./assets/images/symbol-defs.svg#icon-logo"
+                      ></use>
+                    </svg>
+                  </a>
+                </li>
+              </ul>
             </div>
-
-            <div class="login-card-mojang-input">
-                <label id="password-label"></label>
-                <input type="password" class="Password login-mojang-input" spellcheck="false">
-                <small class="error-password">&nbsp;</small>
-            </div>
-
-            <div class="login-options">
-                <a class="password-reset" id="password-reset-link" target="_blank"></a>
-                <br>
-                <a class="new-user" id="new-user-link" target="_blank"></a>
-                <div class="btn-option-login">
-                    <button class="login-btn" id="login-btn"></button>
-                    <button class="cancel cancel-mojang" id="cancel-mojang-btn"></button>
-                </div>
-            </div>
+          </div>
         </div>
+      </div>
+      <button
+        class="cancel cancel-login"
+        id="cancel-login-btn"
+        style="display: none"
+      ></button>
     </div>
+  </div>
+
+  <div class="a2f-card" style="display: none">
+    <div class="info-login-2f" id="info-login-2f"></div>
+    <div class="label-2f">
+      <p id="a2f-label"></p>
+    </div>
+    <div class="a2f-enter">
+      <input type="text" class="a2f login-mojang-input" spellcheck="false" />
+    </div>
+    <button class="login-btn-2f" id="a2f-login-btn"></button>
+    <button class="cancel cancel-2f" id="cancel-a2f-btn"></button>
+  </div>
+
+  <div class="email-verify-card" style="display: none">
+    <div class="info-login-email" id="info-login-email"></div>
+    <p id="email-verify-label"></p>
+    <button class="cancel cancel-email" id="cancel-email-btn"></button>
+  </div>
+
+  <div class="login-card-mojang">
+    <div class="card-body">
+      <!-- <small class="info-login" id="info-login"></small> -->
+
+      <div class="box-login">
+        <div class="icons">
+          <img
+            src="./assets/images/registration-popup.png"
+            alt=""
+            width="345px"
+            height="480px"
+          />
+        </div>
+        <div class="input-login">
+          <small class="info-login" id="info-login"></small>
+          <div class="login-card-mojang-input">
+            <label id="username-label" class="text-label"></label>
+            <input
+              type="text"
+              class="Mail login-mojang-input"
+              spellcheck="false"
+              placeholder="Login"
+            />
+            <small class="error-mail">&nbsp;</small>
+          </div>
+
+          <div class="login-card-mojang-input">
+            <label id="password-label" class="text-label"></label>
+            <input
+              type="password"
+              class="Password login-mojang-input"
+              spellcheck="false"
+              placeholder="Qwerty111"
+            />
+            <small class="error-password">&nbsp;</small>
+          </div>
+
+          <div class="login-options">
+            <div class="link-a">
+              <a
+                class="password-reset"
+                id="password-reset-link"
+                target="_blank"
+              ></a>
+              <a class="new-user" id="new-user-link" target="_blank"></a>
+            </div>
+            <div class="btn-option-login">
+              <button class="login-btn" id="login-btn"></button>
+              <button
+                class="cancel cancel-mojang"
+                id="cancel-mojang-btn"
+              ></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>

@@ -1,10 +1,10 @@
 .login-card {
     position: absolute;
-    top: 52%;
+    top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 35%;
-    background: #121212;
+    min-width: 50%;
+    background: #000000;
     padding: 20px;
     font: normal normal bold 19px/29px Poppins;
     color: #E1E1E1;
@@ -15,6 +15,7 @@
 .login-type {
     display: grid;
     padding: 0 7%;
+    padding-top: 25px;
 }
 
 .login-type-btn {
@@ -22,17 +23,21 @@
     border: none;
     margin: 2% 0;
     height: 2em;
-    background-color: #00bd7a;
-    box-shadow: 0 0 5px #00bd7a;
-    color: #121212;
+    background-color: #5b20ff;
+    box-shadow: 0 0 5px #5b20ff;
+    width: 285px;
+    height: 48px;
+    color: white;
     font: normal normal bold 19px/29px Poppins;
     cursor: pointer;
+    transition: background-color 1s cubic-bezier(0.075, 0.82, 0.165, 1), box-shadow 1s cubic-bezier(0.075, 0.82, 0.165, 1), color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
 
 
 .login-type-btn:hover {
-    background-color: #006e47;
-    box-shadow: 0 0 5px #006e47;
+    background-color: white;
+    box-shadow: 0 0 5px white;
+    color: black;
 }
 
 .login-type-btn:disabled {
@@ -52,42 +57,71 @@
 
 .login-card-mojang {
     position: absolute;
-    top: 52%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 35%;
-    background: #121212;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: linear-gradient(rgba(107, 54, 255, 0.6), rgba(107, 54, 255, 0.6)),url('../../images/type-2.jpg');
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
     padding: 0 20px;
     font: normal normal bold 19px/29px Poppins;
     color: #E1E1E1;
     border-radius: 15px;
     display: none;
 }
-
 .card-body {
     margin: 10%;
 }
-
 .login-card-mojang-input {
-    text-align: center;
-    display: grid;
+    display: flex;
+    flex-direction: column;
 }
-
+.input-login{
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.box-login{
+    display: flex;
+    flex-direction: row;
+    gap: 160px;
+}
 .login-mojang-input {
     font-family: 'Poppins';
     letter-spacing: 2px;
     color: #fff;
-    border: solid 0px rgba(0, 0, 0, 0);
+    border: 1px solid rgba(255, 255, 255, 0.64);
+    background-color: transparent;
+    backdrop-filter: blur(2px);
+    width: 285px;
+    height: 48px;
     border-radius: 30px;
-    background-color: #373737;
     padding: 0.375rem 0.75rem;
+    transition: border 1s cubic-bezier(0.075, 0.82, 0.165, 1), background-color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
-
+.login-mojang-input::placeholder{
+    color: white;
+}
+.login-mojang-input:active, .login-mojang-input:focus{
+    border: 1px solid rgba(0, 0, 0, 0.9);
+    background-color: rgba(0, 0, 0, 0.5);
+}
+.text-label{
+    margin-bottom: 8px;
+}
 .loginDisclaimerText {
     text-align: center;
     font-size: 0.5em;
 }
-
+.link-a{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 15px;
+    margin-bottom: 10px;
+}
 .btn-option-login {
     width: 100%;
     display: grid;
@@ -95,20 +129,24 @@
 }
 
 .login-btn {
-    border-radius: 15px;
+    border-radius: 30px;
     border: none;
     margin: 2% 0;
     height: 2em;
-    background-color: #00bd7a;
-    box-shadow: 0 0 5px #00bd7a;
-    color: #121212;
+    background-color: #5b20ff;
+    box-shadow: 0 0 4px 0 rgba(255, 255, 255, 0.15);
+    width: 285px;
+    height: 48px;
+    color: white;
     font: normal normal bold 19px/29px Poppins;
     cursor: pointer;
+    transition: background-color 1s cubic-bezier(0.075, 0.82, 0.165, 1), color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
 
 .login-btn:hover {
-    background-color: #006e47;
-    box-shadow: 0 0 5px #006e47;
+    background-color: #F1F1F1;
+    color: black;
+    box-shadow: 0 0 5px black;
 }
 
 .cancel {
@@ -132,12 +170,22 @@
     cursor: pointer;
     color: #fff;
     text-decoration: none;
+    transition: color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
+    display: block;
 }
-
+.new-user:focus, .new-user:hover{
+    color: black;
+}
+.password-reset:focus,
+.password-reset:hover {
+    color: black;
+}
 .new-user {
     cursor: pointer;
     color: #fff;
     text-decoration: none;
+    transition: color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
+    display: block;
 }
 .login-btn-2f {
     border-radius: 15px;
@@ -196,3 +244,61 @@
 .cancel-email:hover {
     color: #373737;
 } 
+.link-login-div{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    /* align-items: center; */
+    gap: 24px;
+}
+.a-login-size{
+    display: block;
+}
+.link-a-login{
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 24px;
+}
+.reg-a{
+    display: flex;
+    background-color: #5b20ff;
+    box-shadow: 0 0 5px #5b20ff;
+    width: 285px;
+    height: 48px;
+    color: white;
+    border-radius: 15px;
+    border: none;
+    cursor: pointer;
+    font: normal normal bold 18px/29px Poppins;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    transition: background-color 1s cubic-bezier(0.075, 0.82, 0.165, 1), box-shadow 1s cubic-bezier(0.075, 0.82, 0.165, 1), color 1s cubic-bezier(0.075, 0.82, 0.165, 1);
+}
+
+.reg-a:hover {
+    background-color: white;
+    box-shadow: 0 0 5px white;
+    color: black;
+}
+.svg-link{
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    list-style: none;
+    padding: 0;
+}
+.svg-icon{
+    fill: #5b20ff;
+
+    transition: fill 1s cubic-bezier(0.075, 0.82, 0.165, 1);
+}
+.svg-icon:hover{
+    fill: white;
+}
+.login-title{
+    display: none;
+}

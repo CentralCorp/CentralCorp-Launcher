@@ -31,6 +31,7 @@ class Login {
         document.getElementById('cancel-mojang-btn').textContent = t('cancel');
         document.getElementById('password-reset-link').textContent = t('forgot_password');
         document.getElementById('new-user-link').textContent = t('no_account');
+        document.getElementById('a-link-op-browse').textContent = t('link-open-size');
     }
 
     async refreshData() {
@@ -321,5 +322,4 @@ class Login {
         this.refreshData();
     }
 }
-
 export default Login;

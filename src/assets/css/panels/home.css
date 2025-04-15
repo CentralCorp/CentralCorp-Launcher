@@ -7,6 +7,8 @@
     border-top-right-radius: 40px;
     background: #00000080;
     display: flex;
+    align-items: center;
+    transition: background 2s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
 
 .home-img {
@@ -17,7 +19,7 @@
 }
 
 .player-head {
-    margin: auto 30px;
+    /* margin: auto 30px; */
     background-image: url("../../images/default/setve.png");
     background-size: cover;
     background-position: center;
@@ -28,8 +30,16 @@
     border: none;
     border-radius: 15px;
     transition: all 0.5s cubic-bezier(1, 0.46, 0, 1.29);
+    /* margin-left: 30px; */
 }
-
+.a-link-user{
+    display: flex;
+    align-items: center;
+    justify-items: center;
+    width: 50px;
+    height: 50px;
+    margin-left: 30px;
+}
 .player-head:hover {
     border-radius: 5px;
     transition: all 0.5s cubic-bezier(1, 0.46, 0, 1.29);
@@ -44,7 +54,9 @@
     height: 50px;
     border: none;
     border-radius: 15px;
-    transition: all 0.5s cubic-bezier(1, 0.46, 0, 1.29);
+    background-color: transparent;
+    color: white;
+    transition: transform 0.5s ease-in-out, border-radius 0.3s ease;
 }
 
 /* Hover styles for .admin-btn */
@@ -52,6 +64,8 @@
 .settings-btn:hover {
     border-radius: 5px;
     cursor: pointer;
+    transform: rotate(1turn);
+    /* Поворот при наведенні */
 }
 
 @media (min-width: 768px) {
@@ -147,18 +161,25 @@
 
 .play-btn {
     top: 10px;
-    width: 160px;
+    width: 260px;
     height: 37px;
     border-radius: 20px;
     border: none;
-    background: #00bd7a;
+    background: #3436a3 !important;
     font: normal normal bold 20px/25px Poppins;
-    color: #121212;
+    color: white;
     margin: 15px 0;
-    box-shadow: 0 0 5px #00bd7a;
+    box-shadow: 0 0 5px #3436a3;
     cursor: pointer;
+    transition: background 2s cubic-bezier(0.075, 0.82, 0.165, 1),color 2s cubic-bezier(0.075, 0.82, 0.165, 1);
 }
-
+.play-btn:hover{
+    background: white !important;
+    color: black;
+}
+.bottom-bar-home:hover{
+    background: rgba(0, 0, 0, 0.3);
+}
 .download-content {
     position: absolute;
     top: 50%;
@@ -218,7 +239,6 @@ body::-webkit-scrollbar {
     transition: opacity 1s;
     opacity: 1;
 }
-
 .opacity-1 {
     opacity: 1;
 }
@@ -231,7 +251,7 @@ body::-webkit-scrollbar {
     height: 87px;
     background-color: #292929;
     border-radius: 10px 10px 0px 0px;
-    transition: color .2s, filter .2s;
+    transition: color 2s, filter 2s, background-color 2s;
 }
 
 .title {
@@ -252,7 +272,7 @@ body::-webkit-scrollbar {
     line-height: 25px;
     align-items: center;
     height: 3em;
-    transition: color .2s;
+    transition: color 2s;
 }
 .title-change {
     position: absolute;
@@ -284,7 +304,7 @@ body::-webkit-scrollbar {
     text-align: center;
     font-weight: 900;
     font-family: Poppins;
-    transition: color .2s;
+    transition: color 2s;
 }
 
 .day {
@@ -312,7 +332,7 @@ body::-webkit-scrollbar {
     color: #E1E1E1;
     text-decoration: none;
     border-radius: 0px 0px 10px 10px;
-    transition: color .2s;
+    transition: color 2s, background-color 2s;
 }
 
 .news-author {
@@ -336,10 +356,13 @@ body::-webkit-scrollbar {
     position: relative;
     width: 100%;
     height: 75px;
-    background-color: #292929;
+    background-color: #1f1f1f;
     border-radius: 10px;
     transition: opacity 1s;
-    opacity: .8;
+    /* opacity: .8; */
+}
+.name{
+    color: white !important;
 }
 .ytb,
 .changelog {
@@ -588,10 +611,31 @@ body::-webkit-scrollbar {
         transform: translateX(-100%);
     }
 }
+.info-itm-ul{
+    /* display: flex;
+    flex-direction: row;
+    gap: 15px; */
+    list-style-type: none;
+}
+.list-server{
+    margin-bottom: 20px;
+}
+/* News Blok My */
+.news-block:hover .news-header .date {
+    color: black;
+}
 
+.news-block:hover .news-header .header-text .title {
+    color: black;
+}
 
-
-
-
-
-
+.news-block:hover .news-content .bbWrapper p {
+    color: white;
+}
+.news-block:hover .news-header {
+    background-color: white;
+}
+.news-block:hover .news-content .bbWrapper{
+    background-color: #3436a3;
+}
+/* ***************** */

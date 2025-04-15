@@ -11,9 +11,10 @@ body {
     margin: 0;
     padding: 0;
     user-select: none;
-    background: linear-gradient(#00000066, #00000066),
-    url("../images/background/light.jpg") black no-repeat center center;
+    background: linear-gradient(rgba(107, 54, 255, 0.24), rgba(107, 54, 255, 0.24)),
+    url("../images/background/type-1.jpg") black no-repeat center center;
     background-size: cover; /* Ajout de cette propriété */
+    backdrop-filter: blur(8px);
 }
 
 img {

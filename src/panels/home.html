@@ -1,55 +1,78 @@
 <style class="bodyimg"></style>
 <div class="home-content">
-    <div class="bottom-bar-home">
-        <div class="player-head"></div>
-        <div class="player-role"></div>
-        <div class="player-monnaie"></div>
-        <button class="settings-btn icon-settings" id="settings-btn"></button>
-        <div class="play-element">
-            <button class="play-btn" id="play-btn"></button>
-            <div class="download-content">
-                <div class="text-download" id="text-download"></div>
-                <progress value="0" max="0" class="progress-bar"></progress>
-            </div>
-        </div>
+  <div class="bottom-bar-home">
+    <a
+      href="https://www.uacraft.fun/profile"
+      class="a-link-user"
+      target="_blank"
+    >
+      <div class="player-head"></div>
+    </a>
+    <div class="player-role"></div>
+    <div class="player-monnaie"></div>
+    <button class="settings-btn icon-settings" id="settings-btn"></button>
+    <div class="play-element">
+      <button class="play-btn" id="play-btn"></button>
+      <div class="download-content">
+        <div class="text-download" id="text-download"></div>
+        <progress value="0" max="0" class="progress-bar"></progress>
+      </div>
     </div>
+  </div>
 
-    <!-- Bannière pour le message d'alerte -->
-    <div class="advert-banner" id="advert-banner" style="display:none;"></div>
+  <!-- Bannière pour le message d'alerte -->
+  <div class="advert-banner" id="advert-banner" style="display: none"></div>
 
-    <div class="body-home">
-        <div class="news-list"></div>
-        <div class="info-list">
-            <div class="info-item">
-                <div class="server">
-                    <img class="server-img"/>
-                    <div class="server-text">
-                        <div class="name" id="server-name"></div>
-                        <div class="desc" id="server-desc"></div>
-                    </div>
-                    <div class="etat-text">
-                        <div class="text" id="players-connected"></div>
-                        <div class="online off"></div>
-                    </div>
-                </div>
+  <div class="body-home">
+    <div class="news-list"></div>
+    <div class="info-list">
+      <div class="info-item">
+        <ul class="info-itm-ul">
+          <li class="list-server">
+            <div class="server">
+              <img class="server-img" />
+              <div class="server-text">
+                <div class="name" id="server-name"></div>
+                <div class="desc" id="server-desc"></div>
+              </div>
+              <div class="etat-text">
+                <div class="text" id="players-connected"></div>
+                <div class="online off"></div>
+              </div>
             </div>
-            <div class="info-item">
-                <div class="ytb">
-                    <div class="ytb-header">
-                        <div class="header-text">
-                            <div class="title-change" id="video-title"></div>
-                        </div>
-                    </div>
-                    <div class="video">
-                        <div class="youtube-thumbnail">
-                            <img class="thumbnail-img" alt="YouTube Thumbnail" />
-                            <button class="ytb-play-btn" id="play-video-btn"></button>
-                        </div>
-                        <div class="video-credits"></div>
-                        <div class="icon-ytb ytb-btn" id="view-video-btn"></div>
-                    </div>
-                </div>
+          </li>
+          <li class="list-server" style="display: none">
+            <div class="server">
+              <img class="server-img" />
+              <div class="server-text">
+                <div class="name" id="server-name"></div>
+                <div class="desc" id="server-desc"></div>
+              </div>
+              <div class="etat-text">
+                <div class="text" id="players-connected"></div>
+                <div class="online off"></div>
+              </div>
             </div>
+          </li>
+        </ul>
+      </div>
+      <div class="info-item">
+        <div class="ytb">
+          <div class="ytb-header">
+            <div class="header-text">
+              <div class="title-change" id="video-title"></div>
+            </div>
+          </div>
+          <div class="video">
+            <div class="youtube-thumbnail">
+              <img class="thumbnail-img" alt="YouTube Thumbnail" />
+              <button class="ytb-play-btn" id="play-video-btn"></button>
+            </div>
+            <div class="video-credits"></div>
+            <div class="icon-ytb ytb-btn" id="view-video-btn"></div>
+          </div>
         </div>
+      </div>
     </div>
+  </div>
 </div>
