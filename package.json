@@ -1,7 +1,7 @@
 {
     "name": "eclozionmc",
     "preductname": "EclozionMC Launcher",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "EclozionMC modded server launcher",
     "main": "src/app.js",
     "author": "NeXoS_20, Riptiaz/Boulldogo/Vexato/Luuxis",

@@ -26,7 +26,7 @@ class Splash {
             ];
             let splash = splashes[Math.floor(Math.random() * splashes.length)];
         this.splashMessage.textContent = splash.message;
-        this.splashAuthor.children[0].textContent = "@" + splash.author;
+        this.splashAuthor.children[0].textContent = splash.author;
         })
         
         document.getElementById('splash-message').textContent = t('welcome_message');
