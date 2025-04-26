@@ -91,7 +91,7 @@ class Login {
             playBtn.style.boxShadow = "none";
             playBtn.textContent = t('unavailable');
         } else {
-            playBtn.style.backgroundColor = "#00bd7a";
+            playBtn.style.backgroundColor = "#f8b704";
             playBtn.style.pointerEvents = "auto";
             playBtn.style.boxShadow = "2px 2px 5px rgba(0, 0, 0, 0.3)";
             playBtn.textContent = t('play');

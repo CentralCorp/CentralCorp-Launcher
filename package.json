@@ -1,12 +1,12 @@
 {
-    "name": "conflictura",
-    "preductname": "Conflictura Launcher",
-    "version": "3.2.3",
-    "description": "Conflictura modded server launcher",
+    "name": "eclozionmc",
+    "preductname": "EclozionMC Launcher",
+    "version": "1.0.0",
+    "description": "EclozionMC modded server launcher",
     "main": "src/app.js",
-    "author": "Riptiaz/Boulldogo/Vexato/Luuxis",
-    "env": "azuriom",
-    "settings": "https://conflictura.eu",
+    "author": "NeXoS_20, Riptiaz/Boulldogo/Vexato/Luuxis",
+    "env": "panel",
+    "settings": "https://azurelab.netlib.re/launcher",
     "scripts": {
         "start": "cross-env-shell NODE_ENV=dev electron .",
         "build": "node build.js --build=platform",
@@ -32,6 +32,6 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/Riptiaz/CentralCorp-Launcher.git"
+        "url": "git+https://github.com/azuryonoff/EclozionMC-Launcher.git"
     }
 }

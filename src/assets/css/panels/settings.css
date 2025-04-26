@@ -17,7 +17,7 @@ body {
     width: 150px;
     height: 50px;
     margin: 10px 0;
-    background: #00bd7a;
+    background: #f8b704;
     border: none;
     text-align: center;
     cursor: pointer;
@@ -31,17 +31,17 @@ body {
 }
 
 .tab-btn-css:hover {
-    background: #006e47;
+    background: #f5a206;
     transform: scale(1.05);
 }
 
 .active-tab-btn {
-    background: #006e47;
+    background: #f5a206;
     box-shadow: 0 0 10px #ffffff;
 }
 
 .active-tab-btn:hover {
-    background: #006e47;
+    background: #f5a206;
     transform: scale(1.05);
 }
 
@@ -142,9 +142,9 @@ body {
 
 .account {
     display: inline-block;
-    background: #00bd7a;
-    box-shadow: 0 0 5px #006e47;
-    border: 4px solid #00bd7a;
+    background: #f8b704;
+    box-shadow: 0 0 5px #f5a206;
+    border: 4px solid #f8b704;
     font: normal normal bold 30px/40px Poppins;
     width: 500px;
     height: 100px;
@@ -154,9 +154,9 @@ body {
 }
 
 .account:hover {
-    background: #006e47;
-    box-shadow: 0 0 5px #006e47;
-    border: 4px solid #006e47;
+    background: #f5a206;
+    box-shadow: 0 0 5px #f5a206;
+    border: 4px solid #f5a206;
 }
 
 .account-image {
@@ -208,13 +208,13 @@ body {
 }
 
 .active-account {
-    background: #006e47;
+    background: #f5a206;
     border: 4px solid #ffffff;
     box-shadow: 0 0 5px #ffffff;
 }
 
 .active-account:hover {
-    background: #006e47;
+    background: #f5a206;
     border: 4px solid #ffffff;
     box-shadow: 0 0 5px #ffffff;
 }
@@ -257,7 +257,7 @@ body {
     width: 20px;
     height: 10px;
     background: #F1F1F1;
-    border: 4px solid #00bd7a;
+    border: 4px solid #f8b704;
     transition: background-color .2s, border .2s;
     border-radius: 18px;
     cursor: pointer;
@@ -266,7 +266,7 @@ body {
 .slider-touch-left span:after,
 .slider-touch-right span:after {
     content: attr(value);
-    color: #00bd7a;
+    color: #f8b704;
     font: normal normal bold 12px/18px Poppins;
     white-space: nowrap;
     pointer-events: none;
@@ -294,7 +294,7 @@ body {
     display: block;
     height: 100%;
     width: 0%;
-    background: #00bd7a;
+    background: #f8b704;
     transition: background-color .2s;
 }
 
@@ -324,7 +324,7 @@ body {
     font: normal normal bold 13px/20px Poppins;
     border-radius: 18px;
     padding: 8px 30px;
-    background-color: #00bd7a;
+    background-color: #f8b704;
     cursor: pointer;
     margin-left: 20px;
     transition: color .2s, background-color .2s;
@@ -341,7 +341,7 @@ body {
     font: normal normal bold 13px/20px Poppins;
     border-radius: 18px;
     padding: 8px 30px;
-    background-color: #00bd7a;
+    background-color: #f8b704;
     cursor: pointer;
     margin-left: 20px;
     transition: color .2s, background-color .2s;
@@ -440,7 +440,7 @@ body {
 
 .select {
     border-radius: 40px;
-    background-color: #00bd7a;
+    background-color: #f8b704;
     font: normal normal normal 12px/18px Poppins;
     transition: color .2s, box-shadow .2s;
     border: none;
@@ -480,7 +480,7 @@ body {
 }
 
 .checkbox-settings:checked+label {
-    background-color: #00bd7a;
+    background-color: #f8b704;
 }
 
 .checkround {
@@ -596,11 +596,11 @@ body {
     height: 60px;
     border: none;
     border-radius: 30px;
-    background: #00bd7a;
+    background: #f8b704;
     color: #000000;
     font: normal normal bold 20px/25px Poppins;
     cursor: pointer;
-    box-shadow: 0 0 5px #006e47;
+    box-shadow: 0 0 5px #f5a206;
     transition: background-color 0.2s, box-shadow 0.2s, transform 0.2s;
     display: flex;
     justify-content: center;
@@ -608,8 +608,8 @@ body {
 }
 
 .upload-skin-btn:hover {
-    background: #006e47;
-    box-shadow: 0 0 10px #006e47;
+    background: #f5a206;
+    box-shadow: 0 0 10px #f5a206;
     transform: scale(1.05);
 }
 
@@ -651,7 +651,7 @@ body {
 }
 
 input:checked + .slider {
-  background-color: #00bd7a;
+  background-color: #f8b704;
 }
 
 input:checked + .slider:before {

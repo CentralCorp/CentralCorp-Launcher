@@ -81,14 +81,6 @@ class Home {
         container.appendChild(blockNews);
     }
 
-    setServerIcon() {
-        const serverImg = document.querySelector('.server-img');
-        serverImg.setAttribute("src", this.config.server_icon);
-        if (!this.config.server_icon) {
-            serverImg.style.display = "none";
-        }
-    }
-
     async initLaunch() {
         document.querySelector('.play-btn').addEventListener('click', async () => {
             await this.verifyModsBeforeLaunch();
@@ -343,7 +335,7 @@ class Home {
             playBtn.style.boxShadow = "none";
             playBtn.textContent = t('unavailable');
         } else {
-            playBtn.style.backgroundColor = "#00bd7a";
+            playBtn.style.backgroundColor = "#f8b704";
             playBtn.style.pointerEvents = "auto";
             playBtn.style.boxShadow = "2px 2px 5px rgba(0, 0, 0, 0.3)";
             playBtn.textContent = t('play');
