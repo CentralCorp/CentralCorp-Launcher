@@ -1,17 +1,17 @@
 {
-    "name": "conflictura",
-    "preductname": "Conflictura Launcher",
+    "name": "vermucito",
+    "preductname": "Vermucito Launcher",
     "version": "3.2.7",
-    "description": "Conflictura modded server launcher",
+    "description": "Vermucito modded server launcher",
     "main": "src/app.js",
     "author": "Riptiaz/Boulldogo/Vexato/Luuxis",
     "env": "azuriom",
-    "settings": "https://conflictura.eu",
+    "settings": "https://vermucito.world",
     "scripts": {
         "start": "cross-env-shell NODE_ENV=dev electron .",
         "build": "node build.js --obf=true --build=platform",
         "dev": "cross-env-shell DEV_TOOL=open nodemon --exec npm start",
-        "icon": "node build.js --icon=https://raw.githubusercontent.com/CentralCorp/CentralCorp-Launcher/master/src/assets/images/icon.png"
+        "icon": "node build.js --icon=https://raw.githubusercontent.com/faqperez/Vermu-Launcher/master/src/assets/images/icon.png"
 
     },
     "license": "CC0",
@@ -37,6 +37,6 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/Riptiaz/CentralCorp-Launcher.git"
+        "url": "git+https://github.com/faqperez/Vermu-Launcher.git"
     }
 }
