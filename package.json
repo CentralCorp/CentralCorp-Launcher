@@ -1,17 +1,17 @@
 {
-    "name": "conflictura",
-    "preductname": "Conflictura Launcher",
-    "version": "3.3.3",
-    "description": "Conflictura modded server launcher",
+    "name": "azur-rp-cracked-launcher",
+    "preductName": "AzurRP Cracked Launcher",
+    "version": "1.0.0",
+    "description": "AzurRP modded server launcher",
     "main": "src/app.js",
-    "author": "Riptiaz/Boulldogo/Vexato/Luuxis",
-    "env": "azuriom",
-    "settings": "https://conflictura.eu",
+    "author": "AzurRP, Riptiaz/Boulldogo/Vexato/Luuxis",
+    "env": "panel",
+    "settings": "https://test.azur-rp.eu",
     "scripts": {
         "start": "cross-env-shell NODE_ENV=dev electron .",
         "build": "node build.js --obf=true --build=platform",
         "dev": "cross-env-shell DEV_TOOL=open nodemon --ignore AppData/ --ignore node_modules/ --legacy-watch --exec npm start",
-        "icon": "node build.js --icon=https://raw.githubusercontent.com/CentralCorp/CentralCorp-Launcher/master/src/assets/images/icon.png"
+        "icon": "node build.js --icon=https://raw.githubusercontent.com/Azur-RP-and-Shinobi-Horizon/Azur-RP-Launcher/main/app/assets/images/LoadingSeal.png"
 
     },
     "license": "CC0",
@@ -37,6 +37,6 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/Riptiaz/CentralCorp-Launcher.git"
+        "url": "git+https://github.com/Azur-RP-and-Shinobi-Horizon/Azur-RP-Cracked-Launcher.git"
     }
 }
