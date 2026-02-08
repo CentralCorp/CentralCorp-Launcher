@@ -1,4 +1,4 @@
-![logo](https://centralcorp.github.io/assets/img/minecraft_title.png)
+![logo](https://centralcorp.github.io/img/minecraft_title.png)
 
 ## 🌍 English Version
 
