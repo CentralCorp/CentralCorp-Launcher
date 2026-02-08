@@ -1,7 +1,3 @@
-/**
- * @license CC-BY-NC 4.0 - https://creativecommons.org/licenses/by-nc/4.0/
- */
-
 import config from './utils/config.js';
 import database from './utils/database.js';
 import logger from './utils/logger.js';
@@ -42,6 +38,8 @@ export {
     addAccount,
     slider as Slider,
     accountSelect,
+    showLoadingOverlay,
+    hideLoadingOverlay,
     t
 };
 
@@ -86,9 +84,38 @@ function headplayer(pseudo) {
 
 function getAzAuthUrl() {
     const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-    return pkg.env === 'azuriom' 
-        ? baseUrl 
-        : config.config.azauth.endsWith('/') 
-        ? config.config.azauth 
-        : `${config.config.azauth}/`;
+    return pkg.env === 'azuriom'
+        ? baseUrl
+        : config.config.azauth.endsWith('/')
+            ? config.config.azauth
+            : `${config.config.azauth}/`;
+}
+
+function showLoadingOverlay() {
+    const existing = document.getElementById('account-loading-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'account-loading-overlay';
+    overlay.innerHTML = `
+        <div class="loading-spinner">
+            <span class="loading-dot"></span>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.offsetHeight;
+    overlay.classList.add('visible');
+}
+
+function hideLoadingOverlay() {
+    const overlay = document.getElementById('account-loading-overlay');
+    if (overlay) {
+        overlay.classList.remove('visible');
+        setTimeout(() => {
+            if (overlay.parentNode) {
+                overlay.remove();
+            }
+        }, 450);
+    }
 }

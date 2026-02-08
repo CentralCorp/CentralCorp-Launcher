@@ -1,5 +1,3 @@
-/* Poppins */
-
 @font-face {
     font-family: 'Poppins';
     font-style: normal;
@@ -40,6 +38,7 @@
     font-weight: normal;
     font-style: normal;
 }
+
 [class^="icon-"]:before,
 [class*=" icon-"]:before,
 [class^="icon-"]:after,
@@ -91,6 +90,7 @@
     font-family: "Icons";
     content: "\e909";
 }
+
 .icon-admin:before {
     font-family: "Iconn";
     content: "\e991";

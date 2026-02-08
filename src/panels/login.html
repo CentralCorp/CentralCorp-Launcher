@@ -1,55 +1,52 @@
 <div class="login-content">
-    <div class="login-card">
-        <p id="login-title"></p>
-        <div class="login-type">
-            <button class="mojang login-type-btn" id="web-login-btn"></button>
+    <div class="login-card-main">
+        <div class="login-header">
+            <i class="fas fa-user-circle login-icon"></i>
+            <p class="login-title" id="login-title"></p>
         </div>
-        <button class="cancel cancel-login" id="cancel-login-btn" style="display: none;"></button>
+
+        <small class="info-login" id="info-login"></small>
+
+        <div class="login-form">
+            <div class="login-input-group">
+                <label id="username-label"></label>
+                <input type="text" class="Mail login-input" spellcheck="false" autocomplete="username">
+            </div>
+
+            <div class="login-input-group">
+                <label id="password-label"></label>
+                <input type="password" class="Password login-input" spellcheck="false" autocomplete="current-password">
+            </div>
+
+            <div class="login-links">
+                <a class="password-reset" id="password-reset-link" target="_blank"></a>
+                <a class="new-user" id="new-user-link" target="_blank"></a>
+            </div>
+
+            <button class="login-btn primary-btn" id="login-btn"></button>
+            <button class="cancel cancel-login" id="cancel-login-btn" style="display: none;"></button>
+        </div>
     </div>
 
     <div class="a2f-card" style="display: none;">
+        <div class="login-header">
+            <i class="fas fa-shield-alt login-icon"></i>
+            <p class="login-title" id="a2f-label"></p>
+        </div>
         <div class="info-login-2f" id="info-login-2f"></div>
-        <div class="label-2f">
-            <p id="a2f-label"></p>
+        <div class="login-input-group">
+            <input type="text" class="a2f login-input" spellcheck="false" placeholder="000000">
         </div>
-        <div class="a2f-enter">
-            <input type="text" class="a2f login-mojang-input" spellcheck="false">
-        </div>
-        <button class="login-btn-2f" id="a2f-login-btn"></button>
+        <button class="login-btn-2f primary-btn" id="a2f-login-btn"></button>
         <button class="cancel cancel-2f" id="cancel-a2f-btn"></button>
     </div>
 
     <div class="email-verify-card" style="display: none;">
-        <div class="info-login-email" id="info-login-email"></div>
-        <p id="email-verify-label"></p>
-        <button class="cancel cancel-email" id="cancel-email-btn"></button>
-    </div>
-
-    <div class="login-card-mojang">
-        <div class="card-body">
-            <small class="info-login" id="info-login"></small>
-
-            <div class="login-card-mojang-input">
-                <label id="username-label"></label>
-                <input type="text" class="Mail login-mojang-input" spellcheck="false">
-                <small class="error-mail">&nbsp;</small>
-            </div>
-
-            <div class="login-card-mojang-input">
-                <label id="password-label"></label>
-                <input type="password" class="Password login-mojang-input" spellcheck="false">
-                <small class="error-password">&nbsp;</small>
-            </div>
-
-            <div class="login-options">
-                <a class="password-reset" id="password-reset-link" target="_blank"></a>
-                <br>
-                <a class="new-user" id="new-user-link" target="_blank"></a>
-                <div class="btn-option-login">
-                    <button class="login-btn" id="login-btn"></button>
-                    <button class="cancel cancel-mojang" id="cancel-mojang-btn"></button>
-                </div>
-            </div>
+        <div class="login-header">
+            <i class="fas fa-envelope login-icon"></i>
+            <p class="login-title" id="email-verify-label"></p>
         </div>
+        <div class="info-login-email" id="info-login-email"></div>
+        <button class="cancel cancel-email" id="cancel-email-btn"></button>
     </div>
 </div>

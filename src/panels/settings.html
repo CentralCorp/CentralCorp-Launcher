@@ -1,8 +1,10 @@
 <link rel='stylesheet' href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,100..700;1,100..700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,100..700;1,100..700&display=swap"
+    rel="stylesheet">
 <div class="settings-content">
     <div class="tabs-settings-btn">
-        <button style="margin-top: 40px;" class="tab-btn-css tab-btn active-tab-btn default-tab-btn" id="accounts-tab"></button>
+        <button style="margin-top: 40px;" class="tab-btn-css tab-btn active-tab-btn default-tab-btn"
+            id="accounts-tab"></button>
         <button class="tab-btn-css tab-btn" id="ram-tab"></button>
         <button class="tab-btn-css tab-btn" id="launch-tab"></button>
         <button class="tab-btn-css tab-btn" id="mods-tab"></button>
@@ -47,11 +49,29 @@
     <div class="tabs-settings-content">
         <div class="center-page">
             <div class="title-settings" id="launch-title"></div>
-            <div class="java-settings">
-                <div class="information">
-                    <input type="checkbox" class="checkbox-settings" id="launcher-close"><label for="launcher-close"><div class="checkround"></div></label><span id="close-launcher-text"></span></br>
-                    <input type="checkbox" class="checkbox-settings" id="launcher-close-all"><label for="launcher-close-all"><div class="checkround"></div></label><span id="close-all-text"></span></br>
-                    <input type="checkbox" class="checkbox-settings" id="launcher-open"><label for="launcher-open"><div class="checkround"></div></label><span id="open-launcher-text"></span>
+            <div class="java-settings launch-options-container">
+                <div class="launch-options">
+                    <div class="launch-option" data-tooltip-id="close-launcher-text">
+                        <input type="checkbox" class="checkbox-settings" id="launcher-close">
+                        <label for="launcher-close" class="launch-icon-btn">
+                            <i class="fas fa-window-minimize"></i>
+                        </label>
+                        <span class="launch-tooltip" id="close-launcher-text"></span>
+                    </div>
+                    <div class="launch-option" data-tooltip-id="close-all-text">
+                        <input type="checkbox" class="checkbox-settings" id="launcher-close-all">
+                        <label for="launcher-close-all" class="launch-icon-btn">
+                            <i class="fas fa-times-circle"></i>
+                        </label>
+                        <span class="launch-tooltip" id="close-all-text"></span>
+                    </div>
+                    <div class="launch-option" data-tooltip-id="open-launcher-text">
+                        <input type="checkbox" class="checkbox-settings" id="launcher-open">
+                        <label for="launcher-open" class="launch-icon-btn">
+                            <i class="fas fa-window-restore"></i>
+                        </label>
+                        <span class="launch-tooltip" id="open-launcher-text"></span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -71,10 +91,26 @@
 <div class="tabs-settings-content">
     <div class="player-skin-title title-settings" id="skin-title"></div>
     <div class="center-page">
-        <div class="skin-container-settings">
-            <iframe frameborder="0" id="skinRender2" class="skin-renderer-settings" style="border: none; width: 319px; height: 221px;" src=""></iframe>
-            <input type="file" id="fileInput" accept="image/png" style="display: none;">  
-            <button id="uploadSkinButton" class="upload-skin-btn"></button>          
+        <div class="skin-section-layout">
+            <div class="skin-preview-container">
+                <iframe frameborder="0" id="skinRender2" class="skin-renderer-settings"
+                    style="border: none; width: 319px; height: 221px;" src=""></iframe>
+            </div>
+            <div class="skin-upload-container">
+                <input type="file" id="fileInput" accept="image/png" style="display: none;">
+                <div class="skin-dropzone" id="skinDropzone">
+                    <div class="dropzone-content">
+                        <i class="fas fa-cloud-upload-alt dropzone-icon"></i>
+                        <div class="dropzone-text" id="dropzone-text"></div>
+                        <div class="dropzone-subtext"></div>
+                        <div class="dropzone-requirements"></div>
+                    </div>
+                    <div class="dropzone-hover-state">
+                        <i class="fas fa-check-circle"></i>
+                        <span></span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>

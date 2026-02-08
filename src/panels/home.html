@@ -1,28 +1,39 @@
 <style class="bodyimg"></style>
 <div class="home-content">
-    <div class="bottom-bar-home">
-        <div class="player-head"></div>
-        <div class="player-role"></div>
-        <div class="player-monnaie"></div>
-        <button class="settings-btn icon-settings" id="settings-btn"></button>
-        <div class="play-element">
-            <button class="play-btn" id="play-btn"></button>
-            <div class="download-content">
-                <div class="text-download" id="text-download"></div>
-                <progress value="0" max="0" class="progress-bar"></progress>
+    <aside class="sidebar">
+        <div class="sidebar-top">
+            <div class="player-avatar-wrapper">
+                <div class="player-head"></div>
+                <div class="player-tooltip">
+                    <div class="player-tooltip-role"></div>
+                    <div class="player-monnaie"></div>
+                </div>
+            </div>
+            <div class="player-role"></div>
+        </div>
+        <div class="sidebar-middle">
+            <div class="play-element">
+                <button class="play-btn" id="play-btn"></button>
+                <div class="download-content">
+                    <div class="text-download" id="text-download"></div>
+                    <progress value="0" max="0" class="progress-bar"></progress>
+                </div>
             </div>
         </div>
-    </div>
+        <div class="sidebar-bottom">
+            <button class="settings-btn icon-settings" id="settings-btn"></button>
+        </div>
+    </aside>
 
-    <!-- Bannière pour le message d'alerte -->
-    <div class="advert-banner" id="advert-banner" style="display:none;"></div>
+    <main class="main-content">
+        <section class="news-section">
+            <div class="news-list"></div>
+        </section>
 
-    <div class="body-home">
-        <div class="news-list"></div>
-        <div class="info-list">
+        <aside class="info-section">
             <div class="info-item">
                 <div class="server">
-                    <img class="server-img"/>
+                    <img class="server-img" />
                     <div class="server-text">
                         <div class="name" id="server-name"></div>
                         <div class="desc" id="server-desc"></div>
@@ -33,7 +44,7 @@
                     </div>
                 </div>
             </div>
-            <div class="info-item">
+            <div class="info-item ytb-container">
                 <div class="ytb">
                     <div class="ytb-header">
                         <div class="header-text">
@@ -50,6 +61,8 @@
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
+        </aside>
+
+        <div class="advert-banner" id="advert-banner" style="display:none;"></div>
+    </main>
 </div>

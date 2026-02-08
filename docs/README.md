@@ -1,4 +1,4 @@
-![logo](https://centralcorp.github.io/assets/img/minecraft_title.png)
+![logo](https://centralcorp.github.io/img/minecraft_title.png)
 
 ## 🌍 English Version
 
@@ -33,6 +33,7 @@ Find all the necessary information to configure and use the launcher.
 ✅ **GitHub Auto-Build** for automatic updates
 
 #### 🎨 Customizable Interface
+- 🖌️ Customize **launcher main color**
 - 🏅 Displays **player rank**
 - 💰 Displays **store currency**
 - 📰 Displays **latest news**
@@ -89,6 +90,7 @@ Toutes les informations nécessaires pour configurer et utiliser le launcher.
 ✅ **Build automatique GitHub** pour des mises à jour automatiques
 
 #### 🎨 Interface Personnalisable
+-🖌️ **Couleur principale du launcher modifiable**
 - 🏅 Affichage du **grade du joueur**
 - 💰 Affichage de la **monnaie boutique**
 - 📰 Affichage des **news**

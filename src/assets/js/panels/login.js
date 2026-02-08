@@ -1,4 +1,4 @@
-import { database, changePanel, addAccount, accountSelect, t } from '../utils.js';
+import { database, changePanel, addAccount, accountSelect, showLoadingOverlay, hideLoadingOverlay, t } from '../utils.js';
 const { AZauth } = require('minecraft-java-core-azbetter');
 const { ipcRenderer, shell } = require('electron');
 const pkg = require('../package.json');
@@ -18,7 +18,6 @@ class Login {
 
     setStaticTexts() {
         document.getElementById('login-title').textContent = t('connect');
-        document.getElementById('web-login-btn').textContent = t('web_login');
         document.getElementById('cancel-login-btn').textContent = t('cancel');
         document.getElementById('a2f-label').textContent = t('2fa_enabled');
         document.getElementById('a2f-login-btn').textContent = t('play');
@@ -28,7 +27,6 @@ class Login {
         document.getElementById('username-label').textContent = t('username');
         document.getElementById('password-label').textContent = t('password');
         document.getElementById('login-btn').textContent = t('play');
-        document.getElementById('cancel-mojang-btn').textContent = t('cancel');
         document.getElementById('password-reset-link').textContent = t('forgot_password');
         document.getElementById('new-user-link').textContent = t('no_account');
     }
@@ -38,6 +36,7 @@ class Login {
         document.querySelector('.player-monnaie').innerHTML = '';
         await this.initOthers();
         await this.initPreviewSkin();
+        hideLoadingOverlay();
     }
 
     async initPreviewSkin() {
@@ -58,7 +57,7 @@ class Login {
         this.updateRole(account);
         this.updateMoney(account);
         this.updateWhitelist(account);
-        this.updateBackground(account);
+        await this.updateBackground(account);
     }
 
     updateRole(account) {
@@ -83,9 +82,9 @@ class Login {
 
     updateWhitelist(account) {
         const playBtn = document.querySelector(".play-btn");
-        if (this.config.whitelist_activate && 
+        if (this.config.whitelist_activate &&
             (!this.config.whitelist.includes(account.name) &&
-             !this.config.whitelist_roles.includes(account.user_info.role.name))) {
+                !this.config.whitelist_roles.includes(account.user_info.role.name))) {
             playBtn.style.backgroundColor = "#696969";
             playBtn.style.pointerEvents = "none";
             playBtn.style.boxShadow = "none";
@@ -99,30 +98,46 @@ class Login {
     }
 
     updateBackground(account) {
-        if (this.config.role_data) {
-            for (const roleKey in this.config.role_data) {
-                if (this.config.role_data.hasOwnProperty(roleKey)) {
-                    const role = this.config.role_data[roleKey];
-                    if (account.user_info.role.name === role.name) {
-                        const backgroundUrl = role.background;
-                        const urlPattern = /^(https?:\/\/)/;
-                        document.body.style.background = urlPattern.test(backgroundUrl) 
-                            ? `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${backgroundUrl}) black no-repeat center center scroll`
-                            : `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url("../src/assets/images/background/light.jpg") black no-repeat center center scroll`;
-                        break;
+        return new Promise((resolve) => {
+            const defaultBg = '../src/assets/images/background/light.jpg';
+            let backgroundUrl = null;
+
+            if (this.config.role_data && account.user_info && account.user_info.role) {
+                for (const roleKey in this.config.role_data) {
+                    if (this.config.role_data.hasOwnProperty(roleKey)) {
+                        const role = this.config.role_data[roleKey];
+                        if (account.user_info.role.name === role.name && role.background) {
+                            const urlPattern = /^(https?:\/\/)/;
+                            if (urlPattern.test(role.background)) {
+                                backgroundUrl = role.background;
+                            }
+                            break;
+                        }
                     }
                 }
             }
-        }
+
+            const finalBgUrl = backgroundUrl || defaultBg;
+            const img = new Image();
+            img.onload = () => {
+                document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${finalBgUrl}) black no-repeat center center scroll`;
+                document.body.style.backgroundSize = 'cover';
+                resolve();
+            };
+
+            img.onerror = () => {
+                document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${defaultBg}) black no-repeat center center scroll`;
+                document.body.style.backgroundSize = 'cover';
+                resolve();
+            };
+
+            img.src = finalBgUrl;
+        });
     }
 
     getOnline() {
         console.log(`Initializing Az Panel...`);
         this.loginAzAuth();
-        document.querySelector('.cancel-login').addEventListener("click", () => {
-            document.querySelector(".cancel-login").style.display = "none";
-            changePanel("settings");
-        });
     }
 
     async loginAzAuth() {
@@ -137,10 +152,9 @@ class Login {
         return {
             mailInput: document.querySelector('.Mail'),
             passwordInput: document.querySelector('.Password'),
-            cancelMojangBtn: document.querySelector('.cancel-mojang'),
+            cancelLoginBtn: document.querySelector('.cancel-login'),
             infoLogin: document.querySelector('.info-login'),
             loginBtn: document.querySelector(".login-btn"),
-            mojangBtn: document.querySelector('.mojang'),
             loginBtn2f: document.querySelector('.login-btn-2f'),
             a2finput: document.querySelector('.a2f'),
             infoLogin2f: document.querySelector('.info-login-2f'),
@@ -152,11 +166,11 @@ class Login {
 
     getAzAuthUrl() {
         const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        return pkg.env === 'azuriom' 
-            ? baseUrl 
-            : this.config.azauth.endsWith('/') 
-            ? this.config.azauth 
-            : `${this.config.azauth}/`;
+        return pkg.env === 'azuriom'
+            ? baseUrl
+            : this.config.azauth.endsWith('/')
+                ? this.config.azauth
+                : `${this.config.azauth}/`;
     }
 
     setupExternalLinks(azauth) {
@@ -173,8 +187,9 @@ class Login {
     }
 
     setupEventListeners(elements, azauth) {
-        elements.mojangBtn.addEventListener("click", () => this.toggleLoginCards("mojang"));
-        elements.cancelMojangBtn.addEventListener("click", () => this.toggleLoginCards("default"));
+        elements.cancelLoginBtn.addEventListener("click", () => {
+            changePanel("settings");
+        });
         elements.cancel2f.addEventListener("click", () => this.resetLoginForm(elements));
         elements.cancelEmail.addEventListener("click", () => this.resetLoginForm(elements));
 
@@ -188,7 +203,6 @@ class Login {
         });
 
         elements.loginBtn.addEventListener("click", async () => {
-            elements.cancelMojangBtn.disabled = true;
             elements.loginBtn.disabled = true;
             elements.mailInput.disabled = true;
             elements.passwordInput.disabled = true;
@@ -211,22 +225,19 @@ class Login {
     }
 
     toggleLoginCards(cardType) {
-        const loginCard = document.querySelector(".login-card");
-        const loginCardMojang = document.querySelector(".login-card-mojang");
+        const loginCardMain = document.querySelector(".login-card-main");
         const a2fCard = document.querySelector('.a2f-card');
         const emailVerifyCard = document.querySelector('.email-verify-card');
 
-        loginCard.style.display = cardType === "default" ? "block" : "none";
-        loginCardMojang.style.display = cardType === "mojang" ? "block" : "none";
-        a2fCard.style.display = cardType === "a2f"? "block" : "none";
-        emailVerifyCard.style.display = cardType === "email"? "block" : "none";
+        loginCardMain.style.display = cardType === "default" || cardType === "mojang" ? "block" : "none";
+        a2fCard.style.display = cardType === "a2f" ? "block" : "none";
+        emailVerifyCard.style.display = cardType === "email" ? "block" : "none";
     }
 
     resetLoginForm(elements) {
         this.toggleLoginCards("default");
         elements.infoLogin.innerHTML = "";
         elements.infoLogin2f.innerHTML = "";
-        elements.cancelMojangBtn.disabled = false;
         elements.mailInput.value = "";
         elements.loginBtn.disabled = false;
         elements.mailInput.disabled = false;
@@ -236,17 +247,15 @@ class Login {
     }
 
     enableLoginForm(elements) {
-        elements.cancelMojangBtn.disabled = false;
         elements.loginBtn.disabled = false;
         elements.mailInput.disabled = false;
         elements.passwordInput.disabled = false;
-        
     }
 
     async handleLogin(elements, azauth, a2fCode = null) {
         const azAuth = new AZauth(azauth);
         try {
-            const account_connect = a2fCode 
+            const account_connect = a2fCode
                 ? await azAuth.login(elements.mailInput.value, elements.passwordInput.value, a2fCode)
                 : await azAuth.login(elements.mailInput.value, elements.passwordInput.value);
 
@@ -313,12 +322,24 @@ class Login {
     }
 
     async saveAccount(account) {
+        const existingAccount = await this.database.get(account.uuid, 'accounts');
+        if (existingAccount && existingAccount.value) {
+            showLoadingOverlay();
+            await this.database.update(account, 'accounts');
+            await this.database.update({ uuid: "1234", selected: account.uuid }, 'accounts-selected');
+            accountSelect(account.uuid);
+            changePanel("home");
+            await this.refreshData();
+            return;
+        }
+
+        showLoadingOverlay();
         await this.database.add(account, 'accounts');
         await this.database.update({ uuid: "1234", selected: account.uuid }, 'accounts-selected');
         addAccount(account);
         accountSelect(account.uuid);
         changePanel("home");
-        this.refreshData();
+        await this.refreshData();
     }
 }
 

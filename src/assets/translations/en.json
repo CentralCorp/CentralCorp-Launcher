@@ -21,7 +21,6 @@
     "add_account": "Add an account",
     "web_login": "Web Login",
     "2fa_enabled": "2FA is enabled on your account!",
-    "verify_email": "You must verify your email!",
     "launcher_loading": "Loading",
     "optional_mods": "Optional Mods",
     "skin": "Skin",
@@ -72,5 +71,14 @@
     "september": "September",
     "october": "October",
     "november": "November",
-    "december": "December"
+    "december": "December",
+    "dropzone_drag": "Drop your skin here",
+    "dropzone_click": "or click to choose",
+    "dropzone_requirements": "PNG • 64x64 pixels",
+    "dropzone_drop": "Drop here!",
+    "error_png_required": "File must be a PNG image.",
+    "error_skin_size": "Image must be 64x64 pixels.",
+    "no_mod_description": "No description for this mod",
+    "recommended": "Recommended",
+    "mod_info_missing_admin": "Information for mod ${mod} has not been set by administrators."
 }

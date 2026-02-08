@@ -1,7 +1,3 @@
-/**
- * @license CC-BY-NC 4.0 - https://creativecommons.org/licenses/by-nc/4.0/
- */
-
 'use strict';
 
 import { logger, database, changePanel, t } from '../utils.js';
@@ -36,7 +32,7 @@ class Home {
     }
 
     setStaticTexts() {
-        document.getElementById('play-btn').textContent = t('play');
+        document.getElementById('play-btn').title = t('play');
         document.getElementById('text-download').textContent = t('verification');
         document.getElementById('server-name').textContent = t('offline');
         document.getElementById('server-desc').innerHTML = `<span class="red">${t('closed')}</span>`;
@@ -53,7 +49,7 @@ class Home {
             } else {
                 for (const newsItem of this.news) {
                     const date = await this.getDate(newsItem.publish_date);
-                    this.createNewsBlock(newsContainer, newsItem.title, newsItem.content, newsItem.author, date);
+                    this.createNewsBlock(newsContainer, newsItem.title, newsItem.content, newsItem.author, date, newsItem.image);
                 }
             }
         } else {
@@ -62,7 +58,7 @@ class Home {
         this.setServerIcon();
     }
 
-    createNewsBlock(container, title, content, author = '', date = {}) {
+    createNewsBlock(container, title, content, author = '', date = {}, image = null) {
         const blockNews = document.createElement('div');
         blockNews.classList.add('news-block', 'opacity-1');
         blockNews.innerHTML = `
@@ -72,6 +68,7 @@ class Home {
                 </div>
                 ${date.day ? `<div class="date"><div class="day">${date.day}</div><div class="month">${date.month}</div></div>` : ''}
             </div>
+            ${image ? `<div class="news-image" style="background-image: url('${image}');"></div>` : ''}
             <div class="news-content">
                 <div class="bbWrapper">
                     <p>${content}</p>
@@ -327,29 +324,35 @@ class Home {
     }
 
     updateRole(account) {
+        const tooltipRole = document.querySelector('.player-tooltip-role');
+        const sidebarRole = document.querySelector('.player-role');
+
         if (this.config.role && account.user_info.role) {
-            const blockRole = document.createElement("div");
-            blockRole.innerHTML = `<div>${t('grade')}: ${account.user_info.role.name}</div>`;
-            document.querySelector('.player-role').appendChild(blockRole);
+            const roleName = account.user_info.role.name;
+            tooltipRole.textContent = roleName;
+            sidebarRole.textContent = roleName;
         } else {
-            document.querySelector(".player-role").style.display = "none";
+            tooltipRole.style.display = 'none';
+            sidebarRole.style.display = 'none';
         }
     }
 
     updateWhitelist(account) {
         const playBtn = document.querySelector(".play-btn");
-        if (this.config.whitelist_activate && 
+        if (this.config.whitelist_activate &&
             (!this.config.whitelist.includes(account.name) &&
-             !this.config.whitelist_roles.includes(account.user_info.role.name))) {
-            playBtn.style.backgroundColor = "#696969";
+                !this.config.whitelist_roles.includes(account.user_info.role.name))) {
+            playBtn.style.background = "#696969";
             playBtn.style.pointerEvents = "none";
             playBtn.style.boxShadow = "none";
-            playBtn.textContent = t('unavailable');
+            playBtn.style.opacity = "0.6";
+            playBtn.title = t('unavailable');
         } else {
-            playBtn.style.backgroundColor = "#00bd7a";
+            playBtn.style.background = "";
             playBtn.style.pointerEvents = "auto";
-            playBtn.style.boxShadow = "2px 2px 5px rgba(0, 0, 0, 0.3)";
-            playBtn.textContent = t('play');
+            playBtn.style.boxShadow = "";
+            playBtn.style.opacity = "1";
+            playBtn.title = t('play');
         }
     }
 }

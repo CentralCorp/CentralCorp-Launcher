@@ -1,10 +1,6 @@
-/**
- * @license CC-BY-NC 4.0 - https://creativecommons.org/licenses/by-nc/4.0/
- */
-
 'use strict';
 
-import { database, changePanel, accountSelect, Slider, t } from '../utils.js';
+import { database, changePanel, accountSelect, Slider, showLoadingOverlay, hideLoadingOverlay, t } from '../utils.js';
 const dataDirectory = process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME);
 
 const os = require('os');
@@ -29,11 +25,81 @@ class Settings {
         this.updateModsConfig();
         this.initOptionalMods();
         this.headplayer();
+        this.initSkinDropzone();
+    }
 
+    initSkinDropzone() {
+        const dropzone = document.getElementById('skinDropzone');
+        const fileInput = document.getElementById('fileInput');
 
-        document.getElementById('uploadSkinButton').addEventListener('click', async () => {
-            await this.selectFile();
+        if (!dropzone || !fileInput) return;
+
+        dropzone.addEventListener('click', () => {
+            fileInput.click();
         });
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                await this.handleSkinFile(file);
+            }
+        });
+
+        dropzone.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.add('drag-over');
+        });
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.add('drag-over');
+        });
+
+        dropzone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.remove('drag-over');
+        });
+
+        dropzone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropzone.classList.remove('drag-over');
+
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                await this.handleSkinFile(files[0]);
+            }
+        });
+    }
+
+    async handleSkinFile(file) {
+        if (!file) return;
+
+        if (file.type !== 'image/png') {
+            alert(t('error_png_required'));
+            return;
+        }
+
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = async () => {
+            if (img.width !== 64 || img.height !== 64) {
+                alert(t('error_skin_size'));
+                return;
+            }
+
+            const dropzone = document.getElementById('skinDropzone');
+            dropzone.classList.add('upload-success');
+
+            await this.processSkinChange(file);
+
+            setTimeout(() => {
+                dropzone.classList.remove('upload-success');
+            }, 2000);
+        };
     }
 
     async refreshData() {
@@ -42,6 +108,7 @@ class Settings {
         await this.initOthers();
         await this.initPreviewSkin();
         await this.updateAccountImage();
+        hideLoadingOverlay();
     }
 
     async headplayer() {
@@ -80,7 +147,7 @@ class Settings {
         this.updateRole(account);
         this.updateMoney(account);
         this.updateWhitelist(account);
-        this.updateBackground(account);
+        await this.updateBackground(account);
     }
 
     updateRole(account) {
@@ -105,79 +172,99 @@ class Settings {
 
     updateWhitelist(account) {
         const playBtn = document.querySelector(".play-btn");
-        if (this.config.whitelist_activate && 
+
+        if (this.config.whitelist_activate &&
             (!this.config.whitelist.includes(account.name) &&
-             !this.config.whitelist_roles.includes(account.user_info.role.name))) {
-            playBtn.style.backgroundColor = "#696969";
+                !this.config.whitelist_roles.includes(account.user_info.role.name))) {
+            playBtn.style.background = "#696969";
             playBtn.style.pointerEvents = "none";
             playBtn.style.boxShadow = "none";
             playBtn.textContent = t('unavailable');
         } else {
-            playBtn.style.backgroundColor = "#00bd7a";
+            playBtn.style.background = "";
             playBtn.style.pointerEvents = "auto";
-            playBtn.style.boxShadow = "2px 2px 5px rgba(0, 0, 0, 0.3)";
+            playBtn.style.boxShadow = "";
+            playBtn.style.opacity = "1";
             playBtn.textContent = t('play');
         }
     }
 
     updateBackground(account) {
-        if (this.config.role_data) {
-            for (const roleKey in this.config.role_data) {
-                if (this.config.role_data.hasOwnProperty(roleKey)) {
-                    const role = this.config.role_data[roleKey];
-                    if (account.user_info.role.name === role.name) {
-                        const backgroundUrl = role.background;
-                        const urlPattern = /^(https?:\/\/)/;
-                        document.body.style.background = urlPattern.test(backgroundUrl) 
-                            ? `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${backgroundUrl}) black no-repeat center center scroll`
-                            : `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url("../src/assets/images/background/light.jpg") black no-repeat center center scroll`;
-                        break;
+        return new Promise((resolve) => {
+            const defaultBg = '../src/assets/images/background/light.jpg';
+            let backgroundUrl = null;
+
+            if (this.config.role_data && account.user_info && account.user_info.role) {
+                for (const roleKey in this.config.role_data) {
+                    if (this.config.role_data.hasOwnProperty(roleKey)) {
+                        const role = this.config.role_data[roleKey];
+                        if (account.user_info.role.name === role.name && role.background) {
+                            const urlPattern = /^(https?:\/\/)/;
+                            if (urlPattern.test(role.background)) {
+                                backgroundUrl = role.background;
+                            }
+                            break;
+                        }
                     }
                 }
             }
-        }
+
+            const finalBgUrl = backgroundUrl || defaultBg;
+
+            const img = new Image();
+            img.onload = () => {
+                document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${finalBgUrl}) black no-repeat center center scroll`;
+                document.body.style.backgroundSize = 'cover';
+                resolve();
+            };
+
+            img.onerror = () => {
+                document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${defaultBg}) black no-repeat center center scroll`;
+                document.body.style.backgroundSize = 'cover';
+                resolve();
+            };
+
+            img.src = finalBgUrl;
+        });
     }
 
-initAccount() {
-    document.querySelector('.accounts').addEventListener('click', async (e) => {
-        const path = e.composedPath();
-        const uuid = e.target.id;
-        const selectedaccount = await this.database.get('1234', 'accounts-selected');
+    initAccount() {
+        document.querySelector('.accounts').addEventListener('click', async (e) => {
+            const path = e.composedPath();
+            const uuid = e.target.id;
+            const selectedaccount = await this.database.get('1234', 'accounts-selected');
 
-        // Si on clique sur un élément de type .account
-        if (path[0].classList.contains('account')) {
-            accountSelect(uuid);
-            this.database.update({ uuid: "1234", selected: uuid }, 'accounts-selected');
-        }
-
-        // Si on clique sur un bouton de suppression de compte
-        if (e.target.classList.contains("account-delete")) {
-            const accountElement = path[1];
-            this.database.delete(accountElement.id, 'accounts');
-            document.querySelector('.accounts').removeChild(accountElement);
-
-            // Si plus aucun compte → retour au panneau de login
-            if (!document.querySelector('.accounts').children.length) {
-                changePanel("login");
-                return;
+            if (path[0].classList.contains('account')) {
+                showLoadingOverlay();
+                accountSelect(uuid);
+                await this.database.update({ uuid: "1234", selected: uuid }, 'accounts-selected');
+                await this.refreshData();
             }
 
-            // Si le compte supprimé était celui sélectionné → sélectionner le suivant
-            if (accountElement.id === selectedaccount?.value?.selected) {
-                const allAccounts = await this.database.getAll('accounts');
-                if (Array.isArray(allAccounts) && allAccounts.length > 0) {
-                    const newUuid = allAccounts[0]?.value?.uuid;
-                    if (newUuid) {
-                        this.database.update({ uuid: "1234", selected: newUuid }, 'accounts-selected');
-                        accountSelect(newUuid);
-                    }
-                } else {
-                    // Aucun compte restant (sécurité)
+            if (e.target.classList.contains("account-delete")) {
+                const accountElement = path[1];
+                this.database.delete(accountElement.id, 'accounts');
+                document.querySelector('.accounts').removeChild(accountElement);
+
+                if (!document.querySelector('.accounts').children.length) {
                     changePanel("login");
+                    return;
+                }
+
+                if (accountElement.id === selectedaccount?.value?.selected) {
+                    const allAccounts = await this.database.getAll('accounts');
+                    if (Array.isArray(allAccounts) && allAccounts.length > 0) {
+                        const newUuid = allAccounts[0]?.value?.uuid;
+                        if (newUuid) {
+                            this.database.update({ uuid: "1234", selected: newUuid }, 'accounts-selected');
+                            accountSelect(newUuid);
+                        }
+                    } else {
+                        changePanel("login");
+                    }
                 }
             }
-        }
-    });
+        });
 
 
         document.querySelector('.add-account').addEventListener('click', () => {
@@ -323,7 +410,7 @@ initAccount() {
                 console.error(`Les informations pour le mod "${mod}" sont manquantes dans "mods".`);
                 modElement.innerHTML = `
                 <div class="mods-container">
-                  <h2>Les informations pour le mod ${mod} n'ont pas étés mises par les administrateurs.<h2>
+                  <h2>${t('mod_info_missing_admin').replace('${mod}', mod)}<h2>
                    <div class="switch">
                       <label class="switch-label">
                         <input type="checkbox" id="${mod}" name="mod" value="${mod}" ${modsConfig[mod] ? 'checked' : ''}>
@@ -336,7 +423,7 @@ initAccount() {
             }
 
             const modName = modInfo.name;
-            const modDescription = modInfo.description || "Aucune description pour ce mod";
+            const modDescription = modInfo.description || t('no_mod_description');
             const modLink = modInfo.icon;
             const modRecommanded = modInfo.recommanded;
 
@@ -346,7 +433,7 @@ initAccount() {
                   <div class="mods-container-text">
                     <div class="mods-container-name">                    
                         <h2>${modName}</h2>
-                        <div class="mods-recommanded" style="display: none;">Recommandé</div>
+                        <div class="mods-recommanded" style="display: none;">${t('recommended')}</div>
                     </div>
                     <div class="mod-description">${modDescription}</div>
                   </div>
@@ -395,14 +482,14 @@ initAccount() {
             const file = input.files[0];
             if (!file) return;
             if (file.type !== 'image/png') {
-                alert('Le fichier doit être une image PNG.');
+                alert(t('error_png_required'));
                 return;
             }
             const img = new Image();
             img.src = URL.createObjectURL(file);
             img.onload = async () => {
                 if (img.width !== 64 || img.height !== 64) {
-                    alert('L\'image doit faire 64x64 pixels.');
+                    alert(t('error_skin_size'));
                     return;
                 }
 
@@ -463,10 +550,10 @@ initAccount() {
     async initResolution() {
         let resolutionDatabase = (await this.database.get('1234', 'screen'))?.value?.screen;
         let resolution = resolutionDatabase ? resolutionDatabase : { width: "1280", height: "720" };
-        
+
         let width = document.querySelector(".width-size");
         width.value = resolution.width;
-        
+
         let height = document.querySelector(".height-size");
         height.value = resolution.height;
 
@@ -474,7 +561,7 @@ initAccount() {
         select.addEventListener("change", (event) => {
             let resolution = select.options[select.options.selectedIndex].value.split(" x ");
             select.options.selectedIndex = 0;
-            
+
             width.value = resolution[0];
             height.value = resolution[1];
             this.database.update({ uuid: "1234", screen: { width: resolution[0], height: resolution[1] } }, 'screen');
@@ -494,40 +581,40 @@ initAccount() {
         let closeAll = document.getElementById("launcher-close-all");
         let openLauncher = document.getElementById("launcher-open");
 
-        if(settingsLauncher.launcher.close === 'close-launcher') {
+        if (settingsLauncher.launcher.close === 'close-launcher') {
             closeLauncher.checked = true;
-        } else if(settingsLauncher.launcher.close === 'close-all') {
+        } else if (settingsLauncher.launcher.close === 'close-all') {
             closeAll.checked = true;
-        } else if(settingsLauncher.launcher.close === 'open-launcher') {
+        } else if (settingsLauncher.launcher.close === 'open-launcher') {
             openLauncher.checked = true;
         }
 
         closeLauncher.addEventListener("change", () => {
-            if(closeLauncher.checked) {
+            if (closeLauncher.checked) {
                 openLauncher.checked = false;
                 closeAll.checked = false;
             }
-           if(!closeLauncher.checked) closeLauncher.checked = true;
+            if (!closeLauncher.checked) closeLauncher.checked = true;
             settingsLauncher.launcher.close = 'close-launcher';
             this.database.update(settingsLauncher, 'launcher');
         })
 
         closeAll.addEventListener("change", () => {
-            if(closeAll.checked) {
+            if (closeAll.checked) {
                 closeLauncher.checked = false;
                 openLauncher.checked = false;
             }
-            if(!closeAll.checked) closeAll.checked = true;
+            if (!closeAll.checked) closeAll.checked = true;
             settingsLauncher.launcher.close = 'close-all';
             this.database.update(settingsLauncher, 'launcher');
         })
 
         openLauncher.addEventListener("change", () => {
-            if(openLauncher.checked) {
+            if (openLauncher.checked) {
                 closeLauncher.checked = false;
                 closeAll.checked = false;
             }
-            if(!openLauncher.checked) openLauncher.checked = true;
+            if (!openLauncher.checked) openLauncher.checked = true;
             settingsLauncher.launcher.close = 'open-launcher';
             this.database.update(settingsLauncher, 'launcher');
         })
@@ -549,10 +636,11 @@ initAccount() {
             });
         }
 
-        document.querySelector('.save-tabs-btn').addEventListener('click', () => {
+        document.querySelector('.save-tabs-btn').addEventListener('click', async () => {
             document.querySelector('.default-tab-btn').click();
+            showLoadingOverlay();
             changePanel("home");
-            this.refreshData();
+            await this.refreshData();
         });
 
         document.getElementById('accounts-tab').innerHTML = `<i class="fas fa-user"></i><span>${t('accounts')}</span>`;
@@ -574,7 +662,15 @@ initAccount() {
         document.getElementById('mods-title').textContent = t('optional_mods');
         document.getElementById('mods-info').innerHTML = t('mods_detailed_info');
         document.getElementById('skin-title').textContent = t('skin');
-        document.getElementById('uploadSkinButton').textContent = t('change_skin');
+
+        const dropzoneText = document.getElementById('dropzone-text');
+        if (dropzoneText) dropzoneText.textContent = t('dropzone_drag');
+        const dropzoneSubtext = document.querySelector('.dropzone-subtext');
+        if (dropzoneSubtext) dropzoneSubtext.textContent = t('dropzone_click');
+        const dropzoneReq = document.querySelector('.dropzone-requirements');
+        if (dropzoneReq) dropzoneReq.textContent = t('dropzone_requirements');
+        const dropzoneHoverSpan = document.querySelector('.dropzone-hover-state span');
+        if (dropzoneHoverSpan) dropzoneHoverSpan.textContent = t('dropzone_drop');
     }
 
     async initSettingsDefault() {
@@ -608,13 +704,13 @@ initAccount() {
         }
     }
 
-   getAzAuthUrl() {
+    getAzAuthUrl() {
         const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        return pkg.env === 'azuriom' 
-            ? baseUrl 
-            : this.config.azauth.endsWith('/') 
-            ? this.config.azauth 
-            : `${this.config.azauth}/`;
+        return pkg.env === 'azuriom'
+            ? baseUrl
+            : this.config.azauth.endsWith('/')
+                ? this.config.azauth
+                : `${this.config.azauth}/`;
     }
 }
 export default Settings;

@@ -1,11 +1,4 @@
-/**
- * @author Luuxis
- * @license CC-BY-NC 4.0 - https://creativecommons.org/licenses/by-nc/4.0/
- */
-
 'use strict';
-
-// libs 
 const fs = require('fs');
 const { Microsoft, Mojang, AZauth } = require('minecraft-java-core-azbetter');
 const pkg = require('../package.json');
@@ -26,6 +19,7 @@ class Launcher {
         console.log("Initializing Launcher...");
         if (process.platform === "win32") this.initFrame();
         this.config = await config.GetConfig();
+        this.applyAccentColor();
         this.news = await config.GetNews();
         this.database = await new database().init();
         this.createPanels(Login, Home, Settings);
@@ -107,6 +101,7 @@ class Launcher {
 
         if (!accounts.length) {
             changePanel("login");
+            this.hidePreloader();
         } else {
             for (let account of accounts) {
                 account = account.value;
@@ -163,18 +158,55 @@ class Launcher {
 
             if ((await this.database.getAll('accounts')).length === 0) {
                 changePanel("login");
-                document.querySelector(".preload-content").style.display = "none";
+                this.hidePreloader();
                 return;
             }
-            changePanel("home");
-            this.refreshData();
+            await this.refreshDataAndPreload();
         }
-        document.querySelector(".preload-content").style.display = "none";
+    }
+
+    hidePreloader() {
+        const preloader = document.querySelector(".preload-content");
+        if (preloader) {
+            preloader.classList.add('fade-out');
+            setTimeout(() => {
+                preloader.style.display = "none";
+            }, 500);
+        }
+    }
+
+    async refreshDataAndPreload() {
+        document.querySelector('.player-role').innerHTML = '';
+        document.querySelector('.player-monnaie').innerHTML = '';
+        document.querySelector('.player-tooltip-role').innerHTML = '';
+
+        const loadPromises = [];
+        loadPromises.push(this.initPreviewSkin());
+
+        const uuid = (await this.database.get('1234', 'accounts-selected')).value;
+        const account = (await this.database.get(uuid.selected, 'accounts')).value;
+
+        this.updateRole(account);
+        this.updateMoney(account);
+        this.updateWhitelist(account);
+
+        loadPromises.push(this.preloadBackground(account));
+        loadPromises.push(this.preloadNewsImages());
+
+        const timeout = new Promise(resolve => setTimeout(resolve, 5000));
+        await Promise.race([
+            Promise.all(loadPromises),
+            timeout
+        ]);
+        this.updateBackground(account);
+        changePanel("home");
+        this.hidePreloader();
     }
 
     async refreshData() {
         document.querySelector('.player-role').innerHTML = '';
         document.querySelector('.player-monnaie').innerHTML = '';
+        document.querySelector('.player-tooltip-role').innerHTML = '';
         await this.initPreviewSkin();
         await this.initOthers();
     }
@@ -201,65 +233,182 @@ class Launcher {
     }
 
     updateRole(account) {
+        const tooltipRole = document.querySelector('.player-tooltip-role');
+        const sidebarRole = document.querySelector('.player-role');
+
         if (this.config.role && account.user_info.role) {
-            const blockRole = document.createElement("div");
-            blockRole.innerHTML = `<div>${t('grade')}: ${account.user_info.role.name}</div>`;
-            document.querySelector('.player-role').appendChild(blockRole);
+            const roleName = account.user_info.role.name;
+            tooltipRole.textContent = roleName;
+            sidebarRole.textContent = roleName;
         } else {
-            document.querySelector(".player-role").style.display = "none";
+            tooltipRole.style.display = 'none';
+            sidebarRole.style.display = 'none';
         }
     }
 
     updateMoney(account) {
+        const monnaieEl = document.querySelector('.player-monnaie');
         if (this.config.money) {
-            const blockMonnaie = document.createElement("div");
-            blockMonnaie.innerHTML = `<div>${account.user_info.monnaie} pts</div>`;
-            document.querySelector('.player-monnaie').appendChild(blockMonnaie);
+            monnaieEl.textContent = `${account.user_info.monnaie} pts`;
         } else {
-            document.querySelector(".player-monnaie").style.display = "none";
+            monnaieEl.style.display = 'none';
         }
+    }
+
+    applyAccentColor() {
+        if (this.config.accent_color) {
+            const root = document.documentElement;
+            const color = this.config.accent_color;
+            root.style.setProperty('--accent-color', color);
+            root.style.setProperty('--accent-color-dark', this.darkenColor(color, 15));
+            root.style.setProperty('--accent-color-glow', this.hexToRgba(color, 0.4));
+            root.style.setProperty('--accent-color-subtle', this.hexToRgba(color, 0.15));
+            root.style.setProperty('--border-accent', this.hexToRgba(color, 0.3));
+        }
+    }
+
+    hexToRgba(hex, alpha) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    darkenColor(hex, percent) {
+        const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - percent);
+        const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - percent);
+        const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - percent);
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
     }
 
     updateWhitelist(account) {
         const playBtn = document.querySelector(".play-btn");
-        if (this.config.whitelist_activate && 
+        if (this.config.whitelist_activate &&
             (!this.config.whitelist.includes(account.name) &&
-             !this.config.whitelist_roles.includes(account.user_info.role.name))) {
-            playBtn.style.backgroundColor = "#696969";
+                !this.config.whitelist_roles.includes(account.user_info.role.name))) {
+            playBtn.style.background = "#696969";
             playBtn.style.pointerEvents = "none";
             playBtn.style.boxShadow = "none";
-            playBtn.textContent = t('unavailable');
+            playBtn.style.opacity = "0.6";
+            playBtn.title = t('unavailable');
         } else {
-            playBtn.style.backgroundColor = "#00bd7a";
+            playBtn.style.background = "";
             playBtn.style.pointerEvents = "auto";
-            playBtn.style.boxShadow = "2px 2px 5px rgba(0, 0, 0, 0.3)";
-            playBtn.textContent = t('play');
+            playBtn.style.boxShadow = "";
+            playBtn.style.opacity = "1";
+            playBtn.title = t('play');
         }
     }
 
+    preloadBackground(account) {
+        return new Promise((resolve) => {
+            const defaultBg = '../src/assets/images/background/light.jpg';
+            let backgroundUrl = null;
+
+            if (this.config.role_data && account.user_info && account.user_info.role) {
+                for (const roleKey in this.config.role_data) {
+                    if (this.config.role_data.hasOwnProperty(roleKey)) {
+                        const role = this.config.role_data[roleKey];
+                        if (account.user_info.role.name === role.name && role.background) {
+                            const urlPattern = /^(https?:\/\/)/;
+                            if (urlPattern.test(role.background)) {
+                                backgroundUrl = role.background;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            const finalBgUrl = backgroundUrl || defaultBg;
+            const img = new Image();
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            img.src = finalBgUrl;
+        });
+    }
+
+    preloadNewsImages() {
+        return new Promise((resolve) => {
+            const newsImages = document.querySelectorAll('.news-image');
+            if (newsImages.length === 0) {
+                resolve();
+                return;
+            }
+
+            let loadedCount = 0;
+            const totalImages = newsImages.length;
+
+            newsImages.forEach(newsImg => {
+                const bgImage = newsImg.style.backgroundImage;
+                if (bgImage && bgImage !== 'none') {
+                    const url = bgImage.replace(/url\(['"]?([^'"\)]+)['"]?\)/g, '$1');
+                    const img = new Image();
+                    img.onload = img.onerror = () => {
+                        loadedCount++;
+                        if (loadedCount >= totalImages) resolve();
+                    };
+                    img.src = url;
+                } else {
+                    loadedCount++;
+                    if (loadedCount >= totalImages) resolve();
+                }
+            });
+        });
+    }
+
     updateBackground(account) {
-        if (this.config.role_data) {
+        const defaultBg = '../src/assets/images/background/light.jpg';
+        let backgroundUrl = null;
+
+        if (this.config.role_data && account.user_info && account.user_info.role) {
             for (const roleKey in this.config.role_data) {
                 if (this.config.role_data.hasOwnProperty(roleKey)) {
                     const role = this.config.role_data[roleKey];
-                    if (account.user_info.role.name === role.name) {
-                        const backgroundUrl = role.background;
-                        document.body.style.background = urlPattern.test(backgroundUrl) 
-                            ? `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${backgroundUrl}) black no-repeat center center scroll`
-                            : `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url("../src/assets/images/background/light.jpg") black no-repeat center center scroll`;
+                    if (account.user_info.role.name === role.name && role.background) {
+                        const urlPattern = /^(https?:\/\/)/;
+                        if (urlPattern.test(role.background)) {
+                            backgroundUrl = role.background;
+                        }
                         break;
                     }
                 }
             }
         }
+
+        const finalBgUrl = backgroundUrl || defaultBg;
+
+        if (!document.getElementById('bg-transition-overlay')) {
+            const overlay = document.createElement('div');
+            overlay.id = 'bg-transition-overlay';
+            overlay.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                z-index: -1; opacity: 0; transition: opacity 0.5s ease;
+                background-size: cover; background-position: center;
+            `;
+            document.body.appendChild(overlay);
+        }
+
+        const overlay = document.getElementById('bg-transition-overlay');
+        overlay.style.backgroundImage = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${finalBgUrl})`;
+
+        requestAnimationFrame(() => {
+            overlay.style.opacity = '1';
+        });
+
+        setTimeout(() => {
+            document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${finalBgUrl}) black no-repeat center center scroll`;
+            document.body.style.backgroundSize = 'cover';
+            overlay.style.opacity = '0';
+        }, 550);
     }
     getAzAuthUrl() {
         const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        return pkg.env === 'azuriom' 
-            ? baseUrl 
-            : this.config.azauth.endsWith('/') 
-            ? this.config.azauth 
-            : `${this.config.azauth}/`;
+        return pkg.env === 'azuriom'
+            ? baseUrl
+            : this.config.azauth.endsWith('/')
+                ? this.config.azauth
+                : `${this.config.azauth}/`;
     }
 }
 

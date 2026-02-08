@@ -1,7 +1,3 @@
-/**
- * @license CC-BY-NC 4.0 - https://creativecommons.org/licenses/by-nc/4.0/
- */
-
 const pkg = require('../package.json');
 const fetch = require("node-fetch");
 const convert = require("xml-js");
@@ -59,7 +55,8 @@ class Config {
             title: item.title._text,
             content: item['content:encoded']._text,
             author: item['dc:creator']._text,
-            publish_date: item.pubDate._text
+            publish_date: item.pubDate._text,
+            image: item.enclosure && item.enclosure._attributes ? item.enclosure._attributes.url : null
         };
     }
 }

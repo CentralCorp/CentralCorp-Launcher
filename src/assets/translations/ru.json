@@ -21,7 +21,6 @@
     "add_account": "Добавить аккаунт",
     "web_login": "Вход через веб",
     "2fa_enabled": "Двухфакторная аутентификация включена на вашем аккаунте!",
-    "verify_email": "Вы должны подтвердить свою электронную почту!",
     "launcher_loading": "Загрузка",
     "optional_mods": "Опциональные моды",
     "skin": "Скин",
@@ -72,5 +71,14 @@
     "september": "Сентябрь",
     "october": "Октябрь",
     "november": "Ноябрь",
-    "december": "Декабрь"
+    "december": "Декабрь",
+    "dropzone_drag": "Перетащите ваш скин сюда",
+    "dropzone_click": "или нажмите для выбора",
+    "dropzone_requirements": "PNG • 64x64 пикселей",
+    "dropzone_drop": "Отпустите здесь!",
+    "error_png_required": "Файл должен быть изображением PNG.",
+    "error_skin_size": "Изображение должно быть 64x64 пикселей.",
+    "no_mod_description": "Нет описания для этого мода",
+    "recommended": "Рекомендуется",
+    "mod_info_missing_admin": "Информация для мода ${mod} не была установлена администраторами."
 }

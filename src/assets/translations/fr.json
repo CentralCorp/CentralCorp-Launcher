@@ -21,7 +21,6 @@
     "add_account": "Ajouter un compte",
     "web_login": "Connexion Web",
     "2fa_enabled": "Vous avez l'A2F d'activé sur votre compte !",
-    "verify_email": "Vous devez vérifier votre email!",
     "launcher_loading": "Lancement",
     "optional_mods": "Mods",
     "skin": "Skin",
@@ -32,8 +31,6 @@
     "news_follow_here": "Vous pourrez suivre ici toutes les news relatives au serveur.",
     "error_contacting_server": "Erreur. Impossible de contacter le serveur des news. Merci de vérifier votre configuration.",
     "server_unavailable": "Serveur indisponible",
-    "server_online": "En ligne",
-    "server_ping": "ms",
     "patch_in_progress": "Patch en cours...",
     "starting": "Démarrage en cours...",
     "download": "Téléchargement",
@@ -73,5 +70,14 @@
     "september": "Septembre",
     "october": "Octobre",
     "november": "Novembre",
-    "december": "Décembre"
+    "december": "Décembre",
+    "dropzone_drag": "Glissez votre skin ici",
+    "dropzone_click": "ou cliquez pour choisir",
+    "dropzone_requirements": "PNG • 64x64 pixels",
+    "dropzone_drop": "Déposez ici !",
+    "error_png_required": "Le fichier doit être une image PNG.",
+    "error_skin_size": "L'image doit faire 64x64 pixels.",
+    "no_mod_description": "Aucune description pour ce mod",
+    "recommended": "Recommandé",
+    "mod_info_missing_admin": "Les informations pour le mod ${mod} n'ont pas étés mises par les administrateurs."
 }

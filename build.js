@@ -1,5 +1,4 @@
 const fs = require("fs");
-
 const builder = require('electron-builder')
 const JavaScriptObfuscator = require('javascript-obfuscator');
 const nodeFetch = require('node-fetch')
