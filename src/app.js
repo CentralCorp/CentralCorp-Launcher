@@ -1,3 +1,10 @@
+/**
+ * @author Luuxis
+ * Licensed under CC BY-NC 4.0
+ * https://creativecommons.org/licenses/by-nc/4.0/
+ *
+ * Edited by CentralCorp Team
+ */
 const { app, ipcMain, nativeTheme } = require('electron');
 const { Microsoft } = require('minecraft-java-core-azbetter');
 const { autoUpdater } = require('electron-updater')

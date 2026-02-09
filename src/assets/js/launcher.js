@@ -1,3 +1,10 @@
+/**
+ * @author Luuxis
+ * Licensed under CC BY-NC 4.0
+ * https://creativecommons.org/licenses/by-nc/4.0/
+ *
+ * Edited by CentralCorp Team
+ */
 'use strict';
 const fs = require('fs');
 const { Microsoft, Mojang, AZauth } = require('minecraft-java-core-azbetter');

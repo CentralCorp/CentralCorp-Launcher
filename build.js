@@ -1,3 +1,10 @@
+/**
+ * @author Luuxis
+ * Licensed under CC BY-NC 4.0
+ * https://creativecommons.org/licenses/by-nc/4.0/
+ *
+ * Edited by CentralCorp Team
+ */
 const fs = require("fs");
 const builder = require('electron-builder')
 const JavaScriptObfuscator = require('javascript-obfuscator');
