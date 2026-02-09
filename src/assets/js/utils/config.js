@@ -1,3 +1,10 @@
+/**
+ * @author Luuxis
+ * Licensed under CC BY-NC 4.0
+ * https://creativecommons.org/licenses/by-nc/4.0/
+ *
+ * Edited by CentralCorp Team
+ */
 const pkg = require('../package.json');
 const fetch = require("node-fetch");
 const convert = require("xml-js");
