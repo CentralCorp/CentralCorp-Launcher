@@ -911,6 +911,7 @@
     display: inline-block;
     width: 42px;
     height: 24px;
+    flex-shrink: 0;
 }
 
 .switch input {

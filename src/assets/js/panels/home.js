@@ -208,14 +208,40 @@ class Home {
         const serverMs = document.querySelector('.server-text .desc');
         const playersConnected = document.querySelector('.etat-text .text');
         const online = document.querySelector(".etat-text .online");
-        const serverPing = await new Status(this.config.status.ip, this.config.status.port).getStatus();
 
-        if (!serverPing.error) {
-            nameServer.textContent = this.config.status.nameServer;
-            serverMs.innerHTML = `<span class="green">${t('server_online')}</span> - ${serverPing.ms}${t('server_ping')}`;
-            online.classList.toggle("off");
-            playersConnected.textContent = serverPing.playersConnect;
-        } else {
+        let ip = this.config.status.ip;
+        let port = this.config.status.port;
+
+        if (!port) {
+            try {
+                const dns = require('dns');
+                const srvRecords = await new Promise((resolve, reject) => {
+                    dns.resolveSrv(`_minecraft._tcp.${ip}`, (err, records) => {
+                        if (err) reject(err);
+                        else resolve(records);
+                    });
+                });
+                if (srvRecords && srvRecords.length > 0) {
+                    ip = srvRecords[0].name;
+                    port = srvRecords[0].port;
+                }
+            } catch (e) {
+                port = 25565;
+            }
+        }
+
+        try {
+            const serverPing = await new Status(ip, port).getStatus();
+            if (!serverPing.error) {
+                nameServer.textContent = this.config.status.nameServer;
+                serverMs.innerHTML = `<span class="green">${t('server_online')}</span> - ${serverPing.ms}${t('server_ping')}`;
+                online.classList.toggle("off");
+                playersConnected.textContent = serverPing.playersConnect;
+            } else {
+                nameServer.textContent = t('server_unavailable');
+                serverMs.innerHTML = `<span class="red">${t('server_closed')}</span>`;
+            }
+        } catch (e) {
             nameServer.textContent = t('server_unavailable');
             serverMs.innerHTML = `<span class="red">${t('server_closed')}</span>`;
         }
@@ -293,32 +319,34 @@ class Home {
     }
 
     async verifyModsBeforeLaunch() {
-        const playButton = document.querySelector('.play-btn');
-        playButton.addEventListener('click', async () => {
-            const modsDir = path.join(dataDirectory, process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`, 'mods');
-            const launcherConfigDir = path.join(dataDirectory, process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`, 'launcher_config');
-            const modsConfigFile = path.join(launcherConfigDir, 'mods_config.json');
+        const modsDir = path.join(dataDirectory, process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`, 'mods');
+        const launcherConfigDir = path.join(dataDirectory, process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`, 'launcher_config');
+        const modsConfigFile = path.join(launcherConfigDir, 'mods_config.json');
 
-            let modsConfig;
-            try {
-                modsConfig = JSON.parse(fs.readFileSync(modsConfigFile));
-            } catch (error) {
-                console.error("Failed to read mods config file:", error);
-                return;
-            }
+        if (!fs.existsSync(modsDir) || !fs.existsSync(modsConfigFile)) {
+            console.log("Mods directory or config not found, skipping mod verification (first launch).");
+            return;
+        }
 
-            for (const mod in modsConfig) {
-                const modFiles = fs.readdirSync(modsDir).filter(file => file.startsWith(mod) && (file.endsWith('.jar') || file.endsWith('.jar-disable')));
-                if (modFiles.length > 0) {
-                    const modFile = modFiles[0];
-                    const modFilePath = path.join(modsDir, modFile);
-                    const newModFilePath = modsConfig[mod] ? modFilePath.replace('.jar-disable', '.jar') : modFilePath.endsWith('.jar-disable') ? modFilePath : `${modFilePath}.disable`;
-                    if (modFilePath !== newModFilePath) {
-                        fs.renameSync(modFilePath, newModFilePath);
-                    }
+        let modsConfig;
+        try {
+            modsConfig = JSON.parse(fs.readFileSync(modsConfigFile));
+        } catch (error) {
+            console.error("Failed to read mods config file:", error);
+            return;
+        }
+
+        for (const mod in modsConfig) {
+            const modFiles = fs.readdirSync(modsDir).filter(file => file.startsWith(mod) && (file.endsWith('.jar') || file.endsWith('.jar-disable')));
+            if (modFiles.length > 0) {
+                const modFile = modFiles[0];
+                const modFilePath = path.join(modsDir, modFile);
+                const newModFilePath = modsConfig[mod] ? modFilePath.replace('.jar-disable', '.jar') : modFilePath.endsWith('.jar-disable') ? modFilePath : `${modFilePath}.disable`;
+                if (modFilePath !== newModFilePath) {
+                    fs.renameSync(modFilePath, newModFilePath);
                 }
             }
-        });
+        }
     }
 
     displayEmptyModsMessage(modsListElement) {
