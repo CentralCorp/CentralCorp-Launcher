@@ -16,7 +16,7 @@ const path = require('path');
 const fs = require('fs');
 const pkg = require('../package.json');
 const { ipcRenderer, shell } = require('electron');
-const settings_url = pkg.user ? `${pkg.settings}/${pkg.user}` : pkg.settings;
+const settings_url = localStorage.getItem('geoventure_server_url') || (pkg.user ? `${pkg.settings}/${pkg.user}` : pkg.settings);
 
 class Settings {
     static id = "settings";
@@ -33,6 +33,8 @@ class Settings {
         this.initOptionalMods();
         this.headplayer();
         this.initSkinDropzone();
+        this.initAdvanced();
+        this.initCommunityMods();
     }
 
     initSkinDropzone() {
@@ -655,6 +657,8 @@ class Settings {
         document.getElementById('launch-tab').innerHTML = `<i class="fas fa-rocket"></i><span>${t('launcher_loading')}</span>`;
         document.getElementById('mods-tab').innerHTML = `<i class="fas fa-puzzle-piece"></i><span>${t('optional_mods')}</span>`;
         document.getElementById('skin-tab').innerHTML = `<i class="fas fa-tshirt"></i><span>${t('skin')}</span>`;
+        if (document.getElementById('advanced-tab')) document.getElementById('advanced-tab').innerHTML = `<i class="fas fa-cog"></i><span>${t('advanced') || 'Avancé'}</span>`;
+        if (document.getElementById('community-tab')) document.getElementById('community-tab').innerHTML = `<i class="fas fa-cubes"></i><span>${t('community_mods') || 'Communauté'}</span>`;
         document.getElementById('save-tab').innerHTML = `<i class="fas fa-save"></i><span>${t('save')}</span>`;
 
         document.getElementById('add-account-btn').innerHTML = `<i class="fas fa-plus"></i> <span>${t('add_account')}</span>`;
@@ -718,6 +722,106 @@ class Settings {
             : this.config.azauth.endsWith('/')
                 ? this.config.azauth
                 : `${this.config.azauth}/`;
+    }
+
+    initAdvanced() {
+        const openFolderBtn = document.getElementById('open-folder-btn');
+        if (openFolderBtn) {
+            const gameDir = path.join(
+                dataDirectory,
+                process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`
+            );
+            openFolderBtn.addEventListener('click', () => {
+                shell.openPath(gameDir);
+            });
+        }
+        this.initResolution();
+    }
+
+    async initCommunityMods() {
+        const infoEl = document.getElementById('community-info');
+        const listEl = document.getElementById('community-mods-list');
+        if (!listEl) return;
+
+        const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
+
+        if (infoEl) {
+            infoEl.textContent = t('community_mods_info') || 'Ces mods sont approuvés par les administrateurs. Vous pouvez les installer ou désinstaller librement.';
+        }
+
+        try {
+            const response = await fetch(`${baseUrl}api/centralcorp/community-mods`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const mods = await response.json();
+
+            if (!mods || !mods.length) {
+                listEl.innerHTML = `<div class="mods-container-empty"><h2>Aucun mod communauté disponible</h2></div>`;
+                return;
+            }
+
+            const modsDir = path.join(
+                dataDirectory,
+                process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`,
+                'mods'
+            );
+
+            listEl.innerHTML = '';
+
+            for (const mod of mods) {
+                const modFileName = mod.filename || path.basename(mod.url || '');
+                const modFilePath = path.join(modsDir, modFileName);
+                const isInstalled = fs.existsSync(modFilePath);
+
+                const el = document.createElement('div');
+                el.classList.add('mods-container');
+                el.innerHTML = `
+                    ${mod.icon ? `<img src="${mod.icon}" class="mods-icon" alt="${mod.name}">` : ''}
+                    <div class="mods-container-text">
+                        <div class="mods-container-name"><h2>${mod.name}</h2></div>
+                        <div class="mod-description">${mod.description || t('no_mod_description')}</div>
+                    </div>
+                    <button class="community-mod-btn ${isInstalled ? 'uninstall' : 'install'}" data-filename="${modFileName}" data-url="${mod.url || ''}">
+                        ${isInstalled ? (t('uninstall_mod') || 'Désinstaller') : (t('install_mod') || 'Installer')}
+                    </button>
+                `;
+
+                const btn = el.querySelector('.community-mod-btn');
+                btn.addEventListener('click', async () => {
+                    if (btn.classList.contains('install')) {
+                        btn.disabled = true;
+                        btn.textContent = '...';
+                        try {
+                            if (!fs.existsSync(modsDir)) fs.mkdirSync(modsDir, { recursive: true });
+                            const nodeFetch = require('node-fetch');
+                            const fileRes = await nodeFetch(mod.url);
+                            const buffer = await fileRes.buffer();
+                            fs.writeFileSync(modFilePath, buffer);
+                            btn.classList.remove('install');
+                            btn.classList.add('uninstall');
+                            btn.textContent = t('uninstall_mod') || 'Désinstaller';
+                        } catch (err) {
+                            console.error('Failed to install mod:', err);
+                            btn.textContent = 'Erreur';
+                        }
+                        btn.disabled = false;
+                    } else {
+                        try {
+                            if (fs.existsSync(modFilePath)) fs.unlinkSync(modFilePath);
+                            btn.classList.remove('uninstall');
+                            btn.classList.add('install');
+                            btn.textContent = t('install_mod') || 'Installer';
+                        } catch (err) {
+                            console.error('Failed to uninstall mod:', err);
+                        }
+                    }
+                });
+
+                listEl.appendChild(el);
+            }
+        } catch (err) {
+            console.error('Failed to fetch community mods:', err);
+            listEl.innerHTML = `<div class="mods-container-empty"><h2>Aucun mod communauté disponible</h2></div>`;
+        }
     }
 }
 export default Settings;

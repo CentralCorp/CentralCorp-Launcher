@@ -955,3 +955,151 @@ input:checked+.slider:before {
     transform: translateX(18px);
     background: var(--accent-color, #00bd7a);
 }
+
+/* ─── Advanced Tab ─────────────────────────────────────────────────────────── */
+
+.advanced-section {
+    margin-bottom: 28px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.advanced-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.advanced-section h3 {
+    font: 600 15px/1.4 'Poppins', sans-serif;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0 0 14px 0;
+}
+
+.btn-advanced {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    max-width: 300px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, var(--accent-color, #00bd7a) 0%, var(--accent-color-dark, #00a066) 100%);
+    border: none;
+    color: #0a0a0a;
+    font: 600 13px/1 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px var(--accent-color-glow, rgba(0, 189, 122, 0.3));
+}
+
+.btn-advanced:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px var(--accent-color-glow, rgba(0, 189, 122, 0.4));
+}
+
+.btn-advanced i {
+    font-size: 16px;
+}
+
+/* ─── Resolution Settings ──────────────────────────────────────────────────── */
+
+.resolution-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.resolution-select {
+    width: 100%;
+    max-width: 300px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+    font: 500 13px/1 'Poppins', sans-serif;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    transition: border-color 0.2s ease;
+}
+
+.resolution-select:focus {
+    border-color: var(--accent-color, #00bd7a);
+}
+
+.resolution-select option {
+    background: #1a1a22;
+    color: #ffffff;
+}
+
+.resolution-inputs {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.resolution-inputs span {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.resolution-input {
+    width: 100px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+    font: 500 13px/1 'Poppins', sans-serif;
+    outline: none;
+    text-align: center;
+    transition: border-color 0.2s ease;
+}
+
+.resolution-input:focus {
+    border-color: var(--accent-color, #00bd7a);
+}
+
+/* ─── Community Mods ───────────────────────────────────────────────────────── */
+
+.community-mod-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    font: 600 12px/1 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    flex-shrink: 0;
+}
+
+.community-mod-btn.install {
+    background: linear-gradient(180deg, var(--accent-color, #00bd7a) 0%, var(--accent-color-dark, #00a066) 100%);
+    color: #0a0a0a;
+    box-shadow: 0 2px 10px var(--accent-color-glow, rgba(0, 189, 122, 0.3));
+}
+
+.community-mod-btn.install:hover {
+    filter: brightness(1.1);
+    transform: scale(1.03);
+}
+
+.community-mod-btn.uninstall {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+}
+
+.community-mod-btn.uninstall:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: #ef4444;
+}
+
+.community-mod-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
+}

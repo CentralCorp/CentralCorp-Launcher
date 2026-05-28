@@ -766,3 +766,294 @@ body::-webkit-scrollbar {
 .opacity-1 {
     opacity: 1;
 }
+
+/* ─── Server Selector ──────────────────────────────────────────────────────── */
+
+.sidebar-servers {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0;
+    width: 100%;
+}
+
+.server-pill {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+    font: 700 14px/1 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.server-pill:hover {
+    border-color: var(--server-color, var(--accent-color));
+    background: rgba(255, 255, 255, 0.1);
+    transform: scale(1.1);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--server-color, var(--accent-color)) 50%, transparent);
+}
+
+.server-pill.active {
+    border-color: var(--server-color, var(--accent-color));
+    background: color-mix(in srgb, var(--server-color, var(--accent-color)) 20%, transparent);
+    box-shadow: 0 0 16px color-mix(in srgb, var(--server-color, var(--accent-color)) 50%, transparent);
+}
+
+/* ─── Log Console ──────────────────────────────────────────────────────────── */
+
+.log-toggle-btn {
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+}
+
+.log-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
+}
+
+.icon-terminal:before {
+    font-size: 20px;
+}
+
+.log-console {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 420px;
+    max-height: 320px;
+    background: rgba(10, 10, 14, 0.96);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(12px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.log-console.visible {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateY(0);
+}
+
+.log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+}
+
+.log-title {
+    font: 600 13px/1 'Poppins', sans-serif;
+    color: var(--text-primary);
+}
+
+.log-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.log-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font: 500 11px/1 'Poppins', sans-serif;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.log-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+}
+
+.log-btn.log-close {
+    font-size: 16px;
+    padding: 2px 8px;
+}
+
+.log-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    font: 400 11px/1.5 'Roboto Mono', monospace;
+    color: var(--text-secondary);
+}
+
+.log-body::-webkit-scrollbar {
+    width: 4px;
+}
+
+.log-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.log-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+}
+
+.log-line {
+    padding: 1px 0;
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+
+.log-line.log-error {
+    color: #f87171;
+}
+
+.log-line.log-warn {
+    color: #fbbf24;
+}
+
+.log-line.log-info {
+    color: var(--text-secondary);
+}
+
+/* ─── Anti-Cheat Modal ─────────────────────────────────────────────────────── */
+
+.cheat-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.cheat-modal {
+    background: var(--bg-primary);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-lg);
+    padding: 32px 28px;
+    max-width: 460px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 16px 60px rgba(0, 0, 0, 0.7);
+}
+
+.cheat-modal-icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+}
+
+.cheat-modal h2 {
+    font: 700 18px/1.4 'Poppins', sans-serif;
+    color: #f87171;
+    margin: 0 0 10px 0;
+}
+
+.cheat-modal p {
+    font: 400 13px/1.6 'Poppins', sans-serif;
+    color: var(--text-secondary);
+    margin: 0 0 16px 0;
+}
+
+.cheat-list {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    margin-bottom: 20px;
+    max-height: 140px;
+    overflow-y: auto;
+    text-align: left;
+}
+
+.cheat-item {
+    font: 500 12px/1.6 'Roboto Mono', monospace;
+    color: #fbbf24;
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: rgba(251, 191, 36, 0.08);
+    margin-bottom: 4px;
+}
+
+.cheat-modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.cheat-btn-remove {
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid #ef4444;
+    color: #ef4444;
+    font: 600 13px/1 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.cheat-btn-remove:hover {
+    background: rgba(239, 68, 68, 0.35);
+    transform: scale(1.02);
+}
+
+.cheat-btn-cancel {
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-secondary);
+    font: 600 13px/1 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.cheat-btn-cancel:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+/* ─── Progress filename & speed ────────────────────────────────────────────── */
+
+.progress-file {
+    font: 400 8px/1.2 'Poppins', sans-serif;
+    color: var(--text-muted);
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    margin-top: 2px;
+}
+
+.progress-speed {
+    font: 600 8px/1.2 'Poppins', sans-serif;
+    color: var(--accent-color);
+    text-align: center;
+}

@@ -80,5 +80,21 @@
     "error_skin_size": "Изображение должно быть 64x64 пикселей.",
     "no_mod_description": "Нет описания для этого мода",
     "recommended": "Рекомендуется",
-    "mod_info_missing_admin": "Информация для мода ${mod} не была установлена администраторами."
+    "mod_info_missing_admin": "Информация для мода ${mod} не была установлена администраторами.",
+    "select_server": "Выбрать сервер",
+    "server_switching": "Смена сервера...",
+    "logs_console": "Консоль Minecraft",
+    "logs_clear": "Очистить",
+    "open_game_folder": "Открыть папку игры",
+    "cheat_detected_title": "Обнаружены неавторизованные моды",
+    "cheat_detected_desc": "На вашем клиенте обнаружены следующие моды:",
+    "cheat_remove_launch": "Удалить и запустить",
+    "community_mods": "Сообщество",
+    "community_mods_info": "Эти моды одобрены администраторами. Вы можете свободно устанавливать или удалять их.",
+    "install_mod": "Установить",
+    "uninstall_mod": "Удалить",
+    "advanced": "Расширенные",
+    "game_folder": "Папка игры",
+    "open_folder": "Открыть папку",
+    "resolution": "Разрешение"
 }

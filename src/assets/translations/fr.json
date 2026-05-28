@@ -79,5 +79,21 @@
     "error_skin_size": "L'image doit faire 64x64 pixels.",
     "no_mod_description": "Aucune description pour ce mod",
     "recommended": "Recommandé",
-    "mod_info_missing_admin": "Les informations pour le mod ${mod} n'ont pas étés mises par les administrateurs."
+    "mod_info_missing_admin": "Les informations pour le mod ${mod} n'ont pas étés mises par les administrateurs.",
+    "select_server": "Choisir un serveur",
+    "server_switching": "Changement de serveur...",
+    "logs_console": "Console Minecraft",
+    "logs_clear": "Effacer",
+    "open_game_folder": "Ouvrir le dossier de jeu",
+    "cheat_detected_title": "Mods non autorisés détectés",
+    "cheat_detected_desc": "Les mods suivants ont été détectés sur votre client :",
+    "cheat_remove_launch": "Supprimer et lancer",
+    "community_mods": "Communauté",
+    "community_mods_info": "Ces mods sont approuvés par les administrateurs. Vous pouvez les installer ou désinstaller librement.",
+    "install_mod": "Installer",
+    "uninstall_mod": "Désinstaller",
+    "advanced": "Avancé",
+    "game_folder": "Dossier de jeu",
+    "open_folder": "Ouvrir le dossier",
+    "resolution": "Résolution"
 }

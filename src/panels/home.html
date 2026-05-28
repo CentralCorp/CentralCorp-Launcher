@@ -11,16 +11,19 @@
             </div>
             <div class="player-role"></div>
         </div>
+        <div class="sidebar-servers" id="server-selector"></div>
         <div class="sidebar-middle">
             <div class="play-element">
                 <button class="play-btn" id="play-btn"></button>
                 <div class="download-content">
                     <div class="text-download" id="text-download"></div>
+                    <div class="download-file" id="download-file"></div>
                     <progress value="0" max="0" class="progress-bar"></progress>
                 </div>
             </div>
         </div>
         <div class="sidebar-bottom">
+            <button class="log-toggle-btn icon-terminal" id="log-toggle-btn" style="display:none;" title="Console"></button>
             <button class="settings-btn icon-settings" id="settings-btn"></button>
         </div>
     </aside>
@@ -65,4 +68,30 @@
 
         <div class="advert-banner" id="advert-banner" style="display:none;"></div>
     </main>
+
+    <!-- Log Console -->
+    <div class="log-console" id="log-console">
+        <div class="log-header">
+            <span class="log-title">Console Minecraft</span>
+            <div class="log-actions">
+                <button class="log-btn" id="log-clear-btn">Effacer</button>
+                <button class="log-btn log-close" id="log-close-btn">×</button>
+            </div>
+        </div>
+        <div class="log-body" id="log-body"></div>
+    </div>
+
+    <!-- Anti-Cheat Modal -->
+    <div class="cheat-modal-overlay" id="cheat-modal-overlay" style="display:none;">
+        <div class="cheat-modal">
+            <div class="cheat-modal-icon">⚠️</div>
+            <h2 id="cheat-modal-title"></h2>
+            <p id="cheat-modal-desc"></p>
+            <div class="cheat-list" id="cheat-list"></div>
+            <div class="cheat-modal-actions">
+                <button class="cheat-btn-remove" id="cheat-remove-btn"></button>
+                <button class="cheat-btn-cancel" id="cheat-cancel-btn"></button>
+            </div>
+        </div>
+    </div>
 </div>
