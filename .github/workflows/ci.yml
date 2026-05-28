@@ -41,14 +41,15 @@ jobs:
   build-launcher:
     needs: version-bump
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-2022
-          - os: macos-14
+          - os: macos-15
           - os: macos-13
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v4
