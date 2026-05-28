@@ -100,14 +100,10 @@ class Index {
                     icon: "./app/assets/images/icon.icns",
                     category: "public.app-category.games",
                     identity: null,
-                    target: [{
-                        target: "dmg",
-                        arch: "universal"
-                    },
-                    {
-                        target: "zip",
-                        arch: "universal"
-                    }]
+                    target: [
+                        { target: "dmg" },
+                        { target: "zip" }
+                    ]
                 },
                 linux: {
                     icon: "./app/assets/images/icon.png",

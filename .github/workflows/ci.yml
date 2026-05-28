@@ -37,16 +37,14 @@ jobs:
 
             | Plateforme | Fichier |
             |------------|---------|
-            | 🪟 Windows 11 | `Geoventure Launcher-win-x64.exe` |
-            | 🍎 macOS   | `Geoventure Launcher-mac-universal.dmg` |
-            | 🐧 Linux   | `Geoventure Launcher-linux-x64.AppImage` |
+            | 🪟 Windows 11 (x64) | `Conflictura Launcher-win-x64.exe` |
+            | 🍎 macOS Apple Silicon | `Conflictura Launcher-mac-arm64.dmg` |
+            | 🍎 macOS Intel | `Conflictura Launcher-mac-x64.dmg` |
+            | 🐧 Linux (x64) | `Conflictura Launcher-linux-x64.AppImage` |
 
             ### Minecraft 1.20.1
             Ce launcher est configuré pour Minecraft **1.20.1** avec Forge.
             This launcher is configured for Minecraft **1.20.1** with Forge.
-
-            ---
-            **Changelog**
           draft: false
           prerelease: ${{ contains(env.version, 'beta') || contains(env.version, 'alpha') }}
           generate_release_notes: true
@@ -57,7 +55,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest, windows-2022]
+        include:
+          - os: windows-2022
+            platform: win
+          - os: macos-14
+            platform: mac-arm64
+          - os: macos-13
+            platform: mac-x64
+          - os: ubuntu-latest
+            platform: linux
 
     steps:
       - name: Checkout
@@ -73,6 +79,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: 3.x
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-0 libgtk-3-dev libwebkit2gtk-4.0-dev \
+            libappindicator3-dev librsvg2-dev patchelf fakeroot rpm \
+            libx11-xcb-dev libxss-dev libgconf-2-4 libglib2.0-dev
 
       - name: Install dependencies
         run: npm ci
