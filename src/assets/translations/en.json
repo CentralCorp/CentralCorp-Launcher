@@ -38,6 +38,7 @@
     "server_closed": "Closed",
     "server_online": "Online",
     "server_ping": "ms",
+    "players_online": "players online",
     "optional_mods_not_downloaded": "⚠️ Optional mods have not yet been downloaded. Please launch the game once to configure them, then restart the launcher. ⚠️",
     "total_ram": "Total RAM",
     "free_ram": "Free RAM",
@@ -96,5 +97,8 @@
     "advanced": "Advanced",
     "game_folder": "Game folder",
     "open_folder": "Open folder",
-    "resolution": "Resolution"
+    "resolution": "Resolution",
+    "notif_learn_more": "Learn more",
+    "telemetry_consent": "Share anonymous statistics to help the team",
+    "telemetry_description": "Data includes your OS, Launcher version, and server played. No personal data is collected."
 }

@@ -37,6 +37,7 @@
     "server_closed": "Fermé",
     "server_online": "En ligne",
     "server_ping": "ms",
+    "players_online": "joueurs en ligne",
     "optional_mods_not_downloaded": "⚠️ Les mods optionnels n'ont pas encore été téléchargés. Veuillez lancer une première fois le jeu pour pouvoir les configurer, puis redémarrez le launcher. ⚠️",
     "total_ram": "RAM Totale",
     "free_ram": "RAM Disponible",
@@ -45,7 +46,7 @@
     "open_launcher": "Garder le launcher ouvert après le démarrage du jeu.",
     "mods_info": "Les mods listés ici sont optionnels. Vous pouvez choisir de les activer ou de les désactiver pour votre jeu. Les mods recommandés sont marqués pour une meilleure expérience.",
     "ram_detailed_info": "Définition de la RAM allouée à votre jeu, une quantité plus importante augmentera les performances de votre jeu.<br> A noter qu'il faut éviter de mettre une trop grande quantité sinon cela peut provoquer des pertes de performances sur vos autres applications.<br><br><b>- RAM Maximale :</b> Indique la quantité totale de RAM allouée à votre jeu. Il est recommandé de ne pas dépasser 50% de la quantité totale de RAM présente sur votre PC afin qu'il puisse fonctionner correctement. Si votre ordinateur a plus de 8Go de RAM, nous vous recommandons d'allouer 3Go. Si votre ordinateur a 4Go ou moins, n'allouez pas plus de 2Go.<br><br><b>- RAM Minimale :</b> Indique la quantité minimale de RAM allouée au démarrage de votre jeu. Il est recommandé de ne pas mettre plus de 3Go pour cette valeur. La valeur typique est de 1Go.",
-    "mods_detailed_info": "Explications : Les mods présents dans cette fenêtre sont dits \"optionnels\", ce qui veut dire qu'ils ne sont pas obligatoires pour vous connecter au serveur et que vous pouvez choisir de lancer votre jeu avec ou non. Lorsque la case est cochée, cela signifie que le mod sera bien lancé avec le jeu. Sinon, cela veut dire qu'il est désactivé et que ce mod ne sera pas lancé avec le reste de votre jeu.<br><br>Si un mod est marqué comme \"recommandé\", cela signifie que les développeurs pensent qu'il est mieux pour votre expérience de jeu que vous le possédiez. Faites défiler la liste pour voir tous les mods optionnels disponibles.",
+    "mods_detailed_info": "Explications : Les mods présents dans cette fenêtre sont dits \"optionnels\", ce qui veut dire qu'ils ne sont pas obligatoires pour vous connecter au serveur et que vous pouvez choisir de lancer votre jeu avec ou non. Lorsque la case est cochée, cela signifie que le mod sera bien lancé avec le jeu. Sinon, cela veut dire qu'il est désactivé et que ce mod ne sera pas lancé avec le reste de votre jeu.<br><br>Si un mod est marqué comme \"recommandé\", cela signifie que les développeurs pensent qu'il est mieux pour votre expérience de jeu que vous le possiédiez. Faites défiler la liste pour voir tous les mods optionnels disponibles.",
     "connecting": "Connexion en cours...",
     "enter_2fa_code": "Entrez votre code A2F",
     "enter_username": "Entrez votre pseudo",
@@ -95,5 +96,8 @@
     "advanced": "Avancé",
     "game_folder": "Dossier de jeu",
     "open_folder": "Ouvrir le dossier",
-    "resolution": "Résolution"
+    "resolution": "Résolution",
+    "notif_learn_more": "En savoir plus",
+    "telemetry_consent": "Partager des statistiques anonymes pour aider l'équipe",
+    "telemetry_description": "Ces données incluent votre système d'exploitation, la version du Launcher et le serveur joué. Aucune donnée personnelle n'est collectée."
 }

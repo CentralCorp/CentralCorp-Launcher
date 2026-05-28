@@ -8,6 +8,8 @@
 'use strict';
 
 import { logger, database, changePanel, t } from '../utils.js';
+import { sendEvent, isConsented } from '../utils/telemetry.js';
+import { validatePanel } from '../utils/schema-validator.js';
 const { Launch, Status } = require('minecraft-java-core-azbetter');
 const { ipcRenderer, shell } = require('electron');
 const path = require('path');
@@ -25,6 +27,8 @@ const CHEAT_PATTERNS = [
     'impact-', 'skillclient', 'salhack', 'vape', 'pepsi'
 ];
 
+let sessionStart = Date.now();
+
 class Home {
     static id = "home";
 
@@ -34,6 +38,7 @@ class Home {
         this.news = await news;
         this.currentFile = '';
         this.currentSpeed = 0;
+        sessionStart = Date.now();
 
         this.setStaticTexts();
         this.initNews();
@@ -42,10 +47,14 @@ class Home {
         this.initBtn();
         this.initVideo();
         this.initAdvert();
+        this.initNotifications();
         this.verifyModsBeforeLaunch();
         this.initServerSelector();
         this.initKeyboardShortcuts();
         this.initLogConsole();
+        this.validateApiSchema();
+
+        sendEvent('launch');
     }
 
     setStaticTexts() {
@@ -110,7 +119,6 @@ class Home {
     }
 
     async _doLaunch() {
-        // Anti-cheat check
         const cheats = await this.checkForCheatMods();
         if (cheats.length > 0) {
             const proceed = await this.showCheatModal(cheats);
@@ -229,7 +237,6 @@ class Home {
         info.innerHTML = t('starting');
         this.appendLog(String(e));
 
-        // Show log toggle button
         const logToggle = document.getElementById('log-toggle-btn');
         if (logToggle) logToggle.style.display = '';
 
@@ -244,9 +251,11 @@ class Home {
         info.innerHTML = t('verification');
         new logger('Launcher', '#7289da');
 
-        // Keep log toggle visible after game closes
         const logToggle = document.getElementById('log-toggle-btn');
         if (logToggle) logToggle.style.display = '';
+
+        const sessionDuration = Math.round((Date.now() - sessionStart) / 1000);
+        sendEvent('close', { sessionDuration });
 
         console.log('Close');
     }
@@ -285,6 +294,9 @@ class Home {
                 serverMs.innerHTML = `<span class="green">${t('server_online')}</span> - ${serverPing.ms}${t('server_ping')}`;
                 online.classList.toggle("off");
                 playersConnected.textContent = serverPing.playersConnect;
+
+                // Also refresh all-servers status for the selector pills
+                this.refreshAllServersStatus(serverPing);
             } else {
                 nameServer.textContent = t('server_unavailable');
                 serverMs.innerHTML = `<span class="red">${t('server_closed')}</span>`;
@@ -292,6 +304,109 @@ class Home {
         } catch (e) {
             nameServer.textContent = t('server_unavailable');
             serverMs.innerHTML = `<span class="red">${t('server_closed')}</span>`;
+        }
+    }
+
+    async refreshAllServersStatus(currentServerPing) {
+        // Update current server pill with live player count
+        const currentUrl = localStorage.getItem('geoventure_server_url') || settings_url;
+        const activePill = document.querySelector('.server-pill.active');
+        if (activePill && currentServerPing && !currentServerPing.error) {
+            const count = currentServerPing.playersConnect ?? 0;
+            activePill.title = `${activePill.title.split('—')[0].trim()} — ${count} ${t('players_online') || 'joueurs'}`;
+        }
+
+        // Try fetching panel multi-server status
+        try {
+            const base = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
+            const res = await fetch(`${base}?execute=php&action=servers-status`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                signal: AbortSignal.timeout(5000),
+            });
+            if (!res.ok) return;
+            const statuses = await res.json();
+            if (!Array.isArray(statuses)) return;
+
+            for (const status of statuses) {
+                const pill = document.querySelector(`.server-pill[data-server-id="${status.id}"]`);
+                if (!pill) continue;
+                pill.classList.toggle('server-online', !!status.online);
+                pill.classList.toggle('server-offline', !status.online);
+                if (status.online && status.players != null) {
+                    pill.dataset.players = status.players;
+                }
+            }
+        } catch {
+            // Non-blocking
+        }
+    }
+
+    // Feature 4: In-app notifications from Panel
+    async initNotifications() {
+        const container = document.getElementById('notifications-banner');
+        if (!container) return;
+
+        try {
+            const base = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
+            const res = await fetch(`${base}?execute=php&action=notifications`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                signal: AbortSignal.timeout(4000),
+            });
+            if (!res.ok) return;
+            const notifications = await res.json();
+            if (!Array.isArray(notifications) || !notifications.length) return;
+
+            container.innerHTML = '';
+            for (const notif of notifications) {
+                const el = document.createElement('div');
+                el.className = `notification-item notification-${notif.type || 'info'}`;
+                el.innerHTML = `
+                    <span class="notif-icon">${this._notifIcon(notif.type)}</span>
+                    <span class="notif-message">${this._escapeHtml(notif.message)}
+                        ${notif.url ? ` <a href="#" class="notif-link" data-url="${this._escapeAttr(notif.url)}">${t('notif_learn_more') || 'En savoir plus'}</a>` : ''}
+                    </span>
+                    <button class="notif-close" aria-label="Fermer">×</button>
+                `;
+                el.querySelector('.notif-close').addEventListener('click', () => {
+                    el.remove();
+                    if (!container.children.length) container.style.display = 'none';
+                });
+                if (notif.url) {
+                    el.querySelector('.notif-link')?.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        shell.openExternal(notif.url);
+                    });
+                }
+                container.appendChild(el);
+            }
+            container.style.display = 'block';
+        } catch {
+            // Non-blocking
+        }
+    }
+
+    _notifIcon(type) {
+        const icons = { info: 'ℹ️', warning: '⚠️', maintenance: '🔧', event: '🎉' };
+        return icons[type] || '📢';
+    }
+
+    _escapeHtml(str) {
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    _escapeAttr(str) {
+        return String(str).replace(/"/g,'&quot;');
+    }
+
+    // Feature 1: Validate API schema on startup
+    async validateApiSchema() {
+        try {
+            const { compatible, version } = await validatePanel(settings_url);
+            if (!compatible) {
+                console.warn(`[schema] Panel API schema v${version} may be incompatible with this Launcher.`);
+            }
+        } catch {
+            // Non-blocking
         }
     }
 
@@ -439,8 +554,6 @@ class Home {
         }
     }
 
-    // ─── Server Selector ────────────────────────────────────────────────────────
-
     initServerSelector() {
         const servers = pkg.servers;
         if (!servers || !servers.length) return;
@@ -465,7 +578,6 @@ class Home {
             pill.addEventListener('click', () => {
                 if (pill.classList.contains('active')) return;
                 localStorage.setItem('geoventure_server_url', server.settings);
-                // Show brief switching indicator
                 const info = document.querySelector('.text-download');
                 if (info) {
                     info.style.display = 'block';
@@ -478,11 +590,8 @@ class Home {
         });
     }
 
-    // ─── Keyboard Shortcuts ──────────────────────────────────────────────────────
-
     initKeyboardShortcuts() {
         document.addEventListener('keydown', (e) => {
-            // Only trigger Enter on home panel
             if (e.key === 'Enter' && document.querySelector('.panel.home.active')) {
                 const playBtn = document.querySelector('.play-btn');
                 if (playBtn && playBtn.style.display !== 'none') {
@@ -491,8 +600,6 @@ class Home {
             }
         });
     }
-
-    // ─── Anti-Cheat Detection ────────────────────────────────────────────────────
 
     async checkForCheatMods() {
         try {
@@ -577,8 +684,6 @@ class Home {
         });
     }
 
-    // ─── Log Console ─────────────────────────────────────────────────────────────
-
     initLogConsole() {
         const toggleBtn = document.getElementById('log-toggle-btn');
         const logConsole = document.getElementById('log-console');
@@ -625,8 +730,6 @@ class Home {
 
         line.textContent = text;
         body.appendChild(line);
-
-        // Auto-scroll to bottom
         body.scrollTop = body.scrollHeight;
     }
 }
