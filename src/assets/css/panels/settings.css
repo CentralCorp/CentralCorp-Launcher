@@ -3,14 +3,15 @@
     height: 100%;
     padding-top: 26px;
     box-sizing: border-box;
+    position: relative;
 }
 
 .tabs-settings-btn {
-    position: fixed;
+    position: absolute;
     left: 0;
-    top: 0;
+    top: -26px;
     width: 160px;
-    height: 100%;
+    height: calc(100% + 26px);
     padding: 50px 12px 20px;
     box-sizing: border-box;
     display: flex;
