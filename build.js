@@ -84,6 +84,7 @@ class Index {
                 }],
                 win: {
                     icon: "./app/assets/images/icon.ico",
+                    minimumSystemVersion: "10.0.22000",
                     target: [{
                         target: "nsis",
                         arch: "x64"

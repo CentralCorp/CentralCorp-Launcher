@@ -37,7 +37,7 @@ jobs:
 
             | Plateforme | Fichier |
             |------------|---------|
-            | 🪟 Windows | `Geoventure Launcher-win-x64.exe` |
+            | 🪟 Windows 11 | `Geoventure Launcher-win-x64.exe` |
             | 🍎 macOS   | `Geoventure Launcher-mac-universal.dmg` |
             | 🐧 Linux   | `Geoventure Launcher-linux-x64.AppImage` |
 
