@@ -9,7 +9,7 @@ const pkg = require('../package.json');
 const fetch = require("node-fetch");
 const convert = require("xml-js");
 
-const settings_url = pkg.user ? `${pkg.settings}/${pkg.user}` : pkg.settings;
+const settings_url = localStorage.getItem('geoventure_server_url') || (pkg.user ? `${pkg.settings}/${pkg.user}` : pkg.settings);
 
 function getConfigUrl() {
     const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;

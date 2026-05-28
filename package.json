@@ -1,12 +1,17 @@
 {
     "name": "conflictura",
-    "preductname": "Conflictura Launcher",
+    "productName": "Conflictura Launcher",
     "version": "4.0.1",
     "description": "Conflictura modded server launcher",
     "main": "src/app.js",
     "author": "Riptiaz/Boulldogo/Vexato/Luuxis",
     "env": "azuriom",
     "settings": "https://conflictura.eu",
+    "servers": [
+        { "id": "geoventure", "name": "Geoventure", "description": "Aventure & Exploration", "color": "#4ade80", "settings": "https://conflictura.eu" },
+        { "id": "elandor", "name": "Elandor", "description": "RPG & Fantaisie", "color": "#a78bfa", "settings": "https://conflictura.eu" },
+        { "id": "pokeland", "name": "Pokeland", "description": "Pokémon & Combat", "color": "#fb923c", "settings": "https://conflictura.eu" }
+    ],
     "scripts": {
         "start": "cross-env-shell NODE_ENV=dev electron .",
         "build": "node build.js --obf=true --build=platform",

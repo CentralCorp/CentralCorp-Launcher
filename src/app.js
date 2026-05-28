@@ -49,6 +49,7 @@ ipcMain.on('main-window-maximize', () => {
 
 ipcMain.on('main-window-hide', () => MainWindow.getWindow().hide())
 ipcMain.on('main-window-show', () => MainWindow.getWindow().show())
+ipcMain.on('main-window-reload', () => MainWindow.getWindow().webContents.reload())
 
 ipcMain.handle('is-dark-theme', (_, theme) => {
     if (theme === 'dark') return true
