@@ -2,7 +2,7 @@ name: Launcher Build & Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
 
 permissions:
   contents: write
@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,37 +23,33 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_ENV
 
-      - name: Generate release notes
-        id: release_notes
-        run: |
-          echo "RELEASE_BODY<<EOF" >> $GITHUB_ENV
-          echo "## 🚀 Geoventure Launcher v${{ env.version }}" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "### 📦 Téléchargements" >> $GITHUB_ENV
-          echo "| Plateforme | Fichier |" >> $GITHUB_ENV
-          echo "|------------|---------|" >> $GITHUB_ENV
-          echo "| 🪟 Windows | \`Conflictura Launcher-win-x64.exe\` |" >> $GITHUB_ENV
-          echo "| 🍎 macOS   | \`Conflictura Launcher-mac-universal.dmg\` |" >> $GITHUB_ENV
-          echo "| 🐧 Linux   | \`Conflictura Launcher-linux-x64.AppImage\` |" >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "### 🎮 Minecraft 1.20.1" >> $GITHUB_ENV
-          echo "Ce launcher est configuré pour Minecraft **1.20.1** avec Forge." >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "### 📋 Changelog" >> $GITHUB_ENV
-          git log --oneline -10 --no-merges | sed 's/^/- /' >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-      - name: Create Release
-        id: create_release
+      - name: Create or update Release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: v${{ env.version }}
-          name: "🚀 Geoventure Launcher v${{ env.version }}"
-          body: ${{ env.RELEASE_BODY }}
+          name: "Geoventure Launcher v${{ env.version }}"
+          body: |
+            ## Geoventure Launcher v${{ env.version }}
+
+            ### Téléchargements / Downloads
+
+            | Plateforme | Fichier |
+            |------------|---------|
+            | 🪟 Windows | `Geoventure Launcher-win-x64.exe` |
+            | 🍎 macOS   | `Geoventure Launcher-mac-universal.dmg` |
+            | 🐧 Linux   | `Geoventure Launcher-linux-x64.AppImage` |
+
+            ### Minecraft 1.20.1
+            Ce launcher est configuré pour Minecraft **1.20.1** avec Forge.
+            This launcher is configured for Minecraft **1.20.1** with Forge.
+
+            ---
+            **Changelog**
           draft: false
           prerelease: ${{ contains(env.version, 'beta') || contains(env.version, 'alpha') }}
+          generate_release_notes: true
 
   build-launcher:
     needs: create-release
