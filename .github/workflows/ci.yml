@@ -8,7 +8,38 @@ permissions:
   contents: write
 
 jobs:
+  version-bump:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.push.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump patch version
+        id: push
+        run: |
+          npm version patch --no-git-tag-version
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          git add package.json
+          git commit -m "chore: bump version to v$NEW_VERSION [skip ci]"
+          git push origin master
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "Bumped to v$NEW_VERSION"
+
   build-launcher:
+    needs: version-bump
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -20,17 +51,16 @@ jobs:
           - os: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.sha }}
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.x
 
