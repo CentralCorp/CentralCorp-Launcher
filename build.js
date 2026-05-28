@@ -121,6 +121,7 @@ class Index {
             console.log('le build est terminé')
         }).catch(err => {
             console.error('Error during build!', err)
+            process.exit(1)
         })
     }
 
