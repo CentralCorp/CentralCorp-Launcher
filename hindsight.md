@@ -7,52 +7,75 @@
 
 ## Décisions d'architecture
 
-### Electron comme base
-**Pourquoi** : Cross-platform natif (Win/Mac/Linux) depuis une seule codebase JS. Alternative directe à JavaFX (lourd, verbeux) ou Tauri (Rust, barrière d'entrée).  
-**Inconvénient accepté** : Bundle volumineux (~150-200 MB). Pour un launcher de modpack, acceptable — les joueurs téléchargent une seule fois.
+### env: "panel" — CentralCorp Installer (pas Azuriom plugin)
+**Pourquoi** : Le plugin CentralCorp pour Azuriom est payant. On utilise le panel CentralCorp Installer indépendant.  
+**Impact** : Les routes API sont `/utils/api` (panel) au lieu de `/api/centralcorp/options` (Azuriom).  
+**Règle** : Ne JAMAIS remettre `env: "azuriom"` — ça casse toute la connexion.
 
-### Azuriom comme backend
-**Pourquoi** : S'intègre nativement avec l'écosystème Minecraft Spigot/Paper. API Auth + gestion des mods centralisée = zéro update launcher côté config.  
-**Inconvénient** : Dépendance externe forte. Si Azuriom change son API, le launcher casse.
+### config.js n'utilise plus localStorage
+**Pourquoi** : L'override `localStorage.getItem('geoventure_server_url')` causait une régression : si Elandor/Pokeland était sélectionné (URL `conflictura.eu`), le panel config pointait vers `conflictura.eu/utils/api` qui retourne du HTML → crash JSON.  
+**Fix** : `config.js` utilise toujours `pkg.settings` directement. Le localStorage ne sert qu'à switcher les fichiers de jeu dans `home.js`.
 
-### Obfuscation du code en production
-**Pourquoi** : Protection contre la copie/revente du launcher personnalisé.  
-**Inconvénient** : Debugging en production impossible. Les erreurs dans les logs sont illisibles.  
-**Règle** : Ne jamais activer `--obf=false` en production.
+### position: fixed → absolute pour settings sidebar
+**Pourquoi** : `.tabs-settings-btn` était `position: fixed`, ce qui fait sortir l'élément du stacking context. Quand le panel `.settings` passait à `opacity: 0`, la sidebar restait visible.  
+**Fix** : `position: absolute` + `position: relative` sur le parent + `visibility: hidden/visible` sur `.panel`/`.active`.
 
-### CI/CD sur `main` uniquement
-**Pourquoi** : Éviter de créer des releases depuis des branches de feature.  
-**Règle** : Tout merge vers `main` déclenche une build + release automatique.
+### Auto-bump version dans CI
+**Pourquoi** : Éviter d'oublier de bumper la version (sans bump, electron-updater ne détecte pas de nouvelle release).  
+**Implémentation** : Job `version-bump` tourne en premier, fait `npm version patch`, commit avec `[skip ci]`, push. Les 4 jobs build checkoutent le SHA exact post-bump.
+
+### electron-builder programmatique
+**Pourquoi** : `npm run build -- --publish always` passe le flag au CLI mais pas à l'API programmatique `builder.build()`.  
+**Fix critique** : `builder.build({ publish: 'always', config: {...} })` — le `publish` doit être au niveau de l'objet passé, pas dans `config`.
+
+### macOS : deux runners séparés
+**Pourquoi** : `arch: "universal"` échoue avec `discord-rpc` (module natif).  
+**Solution** : `macos-14` (Apple Silicon arm64) + `macos-13` (Intel x64) en parallèle.
+
+---
+
+## Bugs résolus
+
+| Bug | Cause | Fix |
+|---|---|---|
+| "Aucune connexion internet" | `localStorage geoventure_server_url` = `conflictura.eu` → `/utils/api` retourne HTML | `config.js` n'utilise plus localStorage |
+| Settings panel reste visible | `.tabs-settings-btn` `position: fixed` ignore `opacity: 0` parent | `visibility: hidden` + `position: absolute` |
+| Build artifacts jamais uploadés | `publish: 'always'` ignoré par API programmatique electron-builder | `builder.build({ publish: 'always', ... })` |
+| macOS universal build échoue | `discord-rpc` module natif incompatible avec `arch: universal` | Deux runners séparés arm64/x64 |
+| `minimumSystemVersion` invalide | Propriété non supportée dans electron-builder 26.x | Supprimée |
+| Push 403 GitHub | App Claude Code non installée sur l'org Geoventure-MC | Installée manuellement |
 
 ---
 
 ## Ce qui a bien fonctionné
 
-- **Auto-update** : `electron-updater` + GitHub Releases = expérience utilisateur fluide, zéro friction
-- **Traductions automatiques** : Détection `navigator.language` = pas de setting à configurer pour l'utilisateur
-- **Build matrix** : Win/Mac/Linux buildés en parallèle sur GitHub Actions = release complète en ~15 min
-- **Config distante** : Changer les mods ou la version Minecraft = juste une modification backend, aucune mise à jour launcher
+- **Auto-update complet** : `electron-updater` + GitHub Releases + auto-bump CI = joueurs mis à jour sans rien faire
+- **Multi-serveur** : Sélecteur de serveur via `pkg.servers` + localStorage dans `home.js`
+- **Panel transitions** : `visibility` + `opacity` + `transform` = animations fluides sans flash
+- **Build matrix** : 4 plateformes en parallèle, release complète en ~15 min
+- **CentralCorp Installer** : Panel léger, pas besoin du plugin Azuriom payant
 
 ---
 
 ## Ce qui a posé problème
 
-### Modules natifs
-**Problème** : `@electron/rebuild` échoue parfois sur macOS arm64 avec certaines versions de Node.  
-**Contournement** : CI utilise `macos-14` (Apple Silicon) + `setup-python` pour les bindings natifs.
+### modules natifs + macOS
+**Problème** : `discord-rpc` bloque les builds universels.  
+**Contournement** : CI split en deux runners macOS.
 
-### Obfuscation et source maps
-**Problème** : Les erreurs rapportées par les utilisateurs sont des stacks obfusquées — difficile à debugger.  
-**Contournement actuel** : Logger les erreurs avec suffisamment de contexte (action en cours, panel actif) avant qu'elles ne remontent.  
-**TODO** : Intégrer Sentry ou équivalent pour le suivi des erreurs en production.
+### localStorage comme URL override
+**Problème** : L'idée de persister l'URL du serveur sélectionné dans localStorage est dangereuse si la valeur est corrompue ou pointe vers un serveur mort.  
+**Leçon** : localStorage ne doit stocker que des préférences UI, jamais des URLs critiques pour le démarrage.
 
-### Discord RPC déconnexion
-**Problème** : `discord-rpc` peut crasher silencieusement si Discord se ferme/relance pendant que Minecraft tourne.  
-**Contournement** : Try/catch autour des appels RPC, reconnexion en background.
+### Obfuscation + debugging
+**Problème** : Erreurs en production illisibles.  
+**TODO** : Intégrer un système de log côté panel.
 
-### `actions/create-release@v1` déprécié
-**Problème** : L'action GitHub était dépréciée et parfois instable.  
-**Fix** : Migré vers `softprops/action-gh-release@v2` (plus maintenu, meilleure API).
+---
+
+## Deux repos liés
+
+Ce projet est lié à un second repo (panel / backend). Les deux repos sont "fusionnels" — les mises à jour d'un impactent l'autre. Toujours vérifier la cohérence des URLs et des routes API entre les deux.
 
 ---
 
@@ -60,26 +83,21 @@
 
 | Point | Statut |
 |---|---|
-| Java 17 requis | ✅ Auto-bundlé par `minecraft-java-core-azbetter` |
-| Forge compatible 1.20.1 | ✅ Configuré côté Azuriom |
-| OptiFine / Shader support | ⚠️ Non testé, à vérifier selon les mods du pack |
-| Mods ARM (Apple Silicon) | ⚠️ Certains mods natifs peuvent nécessiter Rosetta 2 |
-
----
-
-## Ce qu'on ferait différemment aujourd'hui
-
-1. **TypeScript dès le départ** — Le JS non typé dans les panels est difficile à maintenir quand le projet grossit.
-2. **Séparation stricte main/renderer** — Quelques appels Node.js dans le renderer process (à sécuriser avec `contextIsolation: true` + preload scripts).
-3. **Tests unitaires sur `config.js` et `database.js`** — Ce sont les modules les plus critiques et ils n'ont aucun test.
-4. **Versioning du schéma de config** — Si l'API Azuriom change un champ, le launcher peut casser sans avertissement.
+| Java 17 requis | ✅ Auto-bundlé |
+| Forge `1.20.1-47.4.20` | ✅ Configuré dans `/utils/api` |
+| Serveur Geoventure | ✅ `84.235.238.100:25566` |
+| Serveur Elandor | ⚠️ URL à configurer dans `package.json` |
+| Serveur Pokeland | ⚠️ URL à configurer dans `package.json` |
+| OptiFine / Shaders | ⚠️ Non testé |
 
 ---
 
 ## TODO techniques
 
+- [ ] Renseigner les vraies URLs pour Elandor et Pokeland dans `package.json`
+- [ ] Vider le message d'erreur debug (`index.js` montre l'erreur réelle) → remettre un message propre une fois stable
 - [ ] Migrer vers `contextIsolation: true` (sécurité Electron)
-- [ ] Ajouter un système de reporting d'erreurs (Sentry)
 - [ ] Tests unitaires sur `utils/config.js`
-- [ ] Documenter le schéma JSON attendu de l'API Azuriom
+- [ ] Documenter le schéma JSON attendu de `/utils/api`
 - [ ] Vérifier la compatibilité des mods ARM sur macOS
+- [ ] Community mods tab — brancher sur la vraie API panel
