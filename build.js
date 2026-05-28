@@ -67,6 +67,7 @@ class Index {
     async buildPlatform() {
         await this.Obfuscate();
         builder.build({
+            publish: 'always',
             config: {
                 generateUpdatesFilesForAllChannels: false,
                 appId: productName,

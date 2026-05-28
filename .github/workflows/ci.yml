@@ -8,62 +8,16 @@ permissions:
   contents: write
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get version
-        id: get_version
-        run: |
-          VERSION=$(jq -r .version package.json)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_ENV
-
-      - name: Create or update Release
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ env.version }}
-          name: "Geoventure Launcher v${{ env.version }}"
-          body: |
-            ## Geoventure Launcher v${{ env.version }}
-
-            ### Téléchargements / Downloads
-
-            | Plateforme | Fichier |
-            |------------|---------|
-            | 🪟 Windows 11 (x64) | `Conflictura Launcher-win-x64.exe` |
-            | 🍎 macOS Apple Silicon | `Conflictura Launcher-mac-arm64.dmg` |
-            | 🍎 macOS Intel | `Conflictura Launcher-mac-x64.dmg` |
-            | 🐧 Linux (x64) | `Conflictura Launcher-linux-x64.AppImage` |
-
-            ### Minecraft 1.20.1
-            Ce launcher est configuré pour Minecraft **1.20.1** avec Forge.
-            This launcher is configured for Minecraft **1.20.1** with Forge.
-          draft: false
-          prerelease: ${{ contains(env.version, 'beta') || contains(env.version, 'alpha') }}
-          generate_release_notes: true
-
   build-launcher:
-    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-2022
-            platform: win
           - os: macos-14
-            platform: mac-arm64
           - os: macos-13
-            platform: mac-x64
           - os: ubuntu-latest
-            platform: linux
 
     steps:
       - name: Checkout
@@ -84,9 +38,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-0 libgtk-3-dev libwebkit2gtk-4.0-dev \
-            libappindicator3-dev librsvg2-dev patchelf fakeroot rpm \
-            libx11-xcb-dev libxss-dev libgconf-2-4 libglib2.0-dev
+          sudo apt-get install -y \
+            libgtk-3-0 libgtk-3-dev \
+            libwebkit2gtk-4.0-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            fakeroot \
+            rpm
 
       - name: Install dependencies
         run: npm ci
