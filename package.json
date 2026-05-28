@@ -6,9 +6,9 @@
     "main": "src/app.js",
     "author": "Riptiaz/Boulldogo/Vexato/Luuxis",
     "env": "azuriom",
-    "settings": "https://conflictura.eu",
+    "settings": "https://geoventure.bmeouchi.fr/",
     "servers": [
-        { "id": "geoventure", "name": "Geoventure", "description": "Aventure & Exploration", "color": "#4ade80", "settings": "https://conflictura.eu" },
+        { "id": "geoventure", "name": "Geoventure", "description": "Aventure & Exploration", "color": "#4ade80", "settings": "https://geoventure.bmeouchi.fr/" },
         { "id": "elandor", "name": "Elandor", "description": "RPG & Fantaisie", "color": "#a78bfa", "settings": "https://conflictura.eu" },
         { "id": "pokeland", "name": "Pokeland", "description": "Pokémon & Combat", "color": "#fb923c", "settings": "https://conflictura.eu" }
     ],
