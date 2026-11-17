@@ -34,20 +34,20 @@ jobs:
         shell: bash
         run: |
           CANDIDATE="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
-          if git ls-remote --exit-code --heads https://github.com/Riptiaz/minecraft-java-core.git "$CANDIDATE" >/dev/null 2>&1; then
+          if git ls-remote --exit-code --heads https://github.com/CentralCorp/minecraft-rust-core.git "$CANDIDATE" >/dev/null 2>&1; then
             echo "ref=$CANDIDATE" >> "$GITHUB_OUTPUT"
-          elif git ls-remote --exit-code --heads https://github.com/Riptiaz/minecraft-java-core.git v2-rework >/dev/null 2>&1; then
+          elif git ls-remote --exit-code --heads https://github.com/CentralCorp/minecraft-rust-core.git v2-rework >/dev/null 2>&1; then
             echo "ref=v2-rework" >> "$GITHUB_OUTPUT"
           else
-            echo "ref=master" >> "$GITHUB_OUTPUT"
+            echo "ref=main" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check out minecraft-rust-core
         uses: actions/checkout@v4
         with:
-          repository: Riptiaz/minecraft-java-core
+          repository: CentralCorp/minecraft-rust-core
           ref: ${{ steps.core-ref.outputs.ref }}
-          path: Riptiaz/minecraft-java-core
+          path: CentralCorp/minecraft-rust-core
 
       - name: Install Linux WebKit2GTK & AppIndicator dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -69,7 +69,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: |
-            Riptiaz/minecraft-java-core
+            CentralCorp/minecraft-rust-core
             CentralCorp/CentralCorp-Launcher/src-tauri -> target
 
       - name: Install Tauri CLI
