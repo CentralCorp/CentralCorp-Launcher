@@ -911,6 +911,16 @@ pub async fn launch_instance(
     let cb_app = app.clone();
 
     let callback: Arc<dyn Fn(LaunchEvent) + Send + Sync + 'static> = Arc::new(move |event| {
+        #[cfg(debug_assertions)]
+        match &event {
+            LaunchEvent::Data { line, .. } => write_debug_trace(&format!("[GameLog] {line}")),
+            LaunchEvent::Error { message, .. } => write_debug_trace(&format!("[LaunchError] {message}")),
+            LaunchEvent::Close { exit_code, .. } => write_debug_trace(&format!("[GameClose] exit code: {exit_code:?}")),
+            LaunchEvent::Patch { line, .. } => write_debug_trace(&format!("[LoaderPatch] {line}")),
+            LaunchEvent::Extract { message, .. } => write_debug_trace(&format!("[Extract] {message}")),
+            _ => {}
+        }
+
         update_taskbar_progress_from_event(&cb_app, &event);
 
         if matches!(event, LaunchEvent::Close { .. }) {
@@ -1020,6 +1030,10 @@ pub fn open_main_window(app: AppHandle) -> Result<(), String> {
         let _ = main_win.show();
         let _ = main_win.unminimize();
         let _ = main_win.set_focus();
+        #[cfg(debug_assertions)]
+        {
+            main_win.open_devtools();
+        }
     } else {
         return Err("Main launcher window is not registered".to_string());
     }
@@ -1029,6 +1043,52 @@ pub fn open_main_window(app: AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+pub fn write_debug_trace(line: &str) {
+    #[cfg(debug_assertions)]
+    {
+        use std::io::Write;
+        let ts = chrono::Local::now().format("%H:%M:%S%.3f");
+        let formatted = format!("[{ts}] {line}\n");
+        eprint!("{formatted}");
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(dir.join("debug.log"))
+                {
+                    let _ = f.write_all(formatted.as_bytes());
+                }
+            }
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = line;
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn frontend_debug_log(level: String, source: String, message: String) {
+    write_debug_trace(&format!("[UI:{source}][{level}] {message}"));
+}
+
+#[tauri::command]
+pub fn toggle_devtools(window: tauri::WebviewWindow) {
+    #[cfg(debug_assertions)]
+    {
+        if window.is_devtools_open() {
+            window.close_devtools();
+        } else {
+            window.open_devtools();
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = window;
+    }
 }
 
 #[tauri::command]

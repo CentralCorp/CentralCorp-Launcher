@@ -5,8 +5,8 @@
     "version": "5.0.0",
     "description": "Conflictura modded server launcher",
     "author": "Riptiaz/Boulldogo/Vexato/Luuxis",
-    "env": "azuriom",
-    "settings": "https://conflictura.eu",
+    "env": "panel",
+    "settings": "http://129.151.242.18:25573",
     "user": "",
     "scripts": {
         "start": "tauri dev",

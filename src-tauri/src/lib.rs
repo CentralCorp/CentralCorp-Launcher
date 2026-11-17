@@ -11,6 +11,15 @@ use crate::state::LauncherState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(debug_assertions)]
+    {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                let _ = std::fs::write(dir.join("debug.log"), "=== CentralCorp Debug Session Started ===\n");
+            }
+        }
+    }
+
     let launcher_state = LauncherState::new();
 
     tauri::Builder::default()
@@ -37,6 +46,10 @@ pub fn run() {
                 if let Some(main_win) = app.get_webview_window("main") {
                     let _ = main_win.show();
                     let _ = main_win.set_focus();
+                    #[cfg(debug_assertions)]
+                    {
+                        main_win.open_devtools();
+                    }
                 }
                 if let Some(splash_win) = app.get_webview_window("splash") {
                     let _ = splash_win.close();
@@ -78,6 +91,8 @@ pub fn run() {
             commands::open_external_url,
             commands::open_main_window,
             commands::check_app_update,
+            commands::frontend_debug_log,
+            commands::toggle_devtools,
         ])
         .run(tauri::generate_context!())
         .expect("error while running CentralCorp Tauri application");
