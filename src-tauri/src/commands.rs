@@ -893,6 +893,7 @@ pub async fn launch_instance(
     state: State<'_, LauncherState>,
     mut options: LaunchOptions,
     close_behavior: String,
+    mods_url: Option<String>,
 ) -> Result<u32, String> {
     // Always protect `<instance_dir>/launcher_config` from bundle cleaner deletion
     if !options
@@ -934,8 +935,35 @@ pub async fn launch_instance(
         let _ = cb_app.emit("launch-event", &event);
     });
 
+    let post_prepare_root = options.path.clone();
+    let post_prepare_slug = options
+        .instance_slug()
+        .unwrap_or_else(|| "default".to_string());
+    let post_prepare_modded = options.url.is_some();
+
     let launcher = Launcher::new(options);
-    let pid = match launcher.launch(callback).await {
+    let prepared = match launcher.prepare(Arc::clone(&callback)).await {
+        Ok(prep) => prep,
+        Err(err) => {
+            clear_taskbar_progress(&app);
+            return Err(err.to_string());
+        }
+    };
+
+    // Reconcile optional mods AFTER bundle/ZIP extraction and BEFORE spawning the JVM so even
+    // on a brand-new first launch, non-recommended (`recommended: false`) or previously disabled
+    // optional mods extracted from `mods-optional` packages are renamed to `.jar-disable`.
+    if post_prepare_modded {
+        reconcile_optional_mods_post_prepare(
+            state.http(),
+            &post_prepare_root,
+            &post_prepare_slug,
+            mods_url.as_deref(),
+        )
+        .await;
+    }
+
+    let pid = match launcher.spawn_prepared(&prepared, callback).await {
         Ok(pid) => pid,
         Err(err) => {
             clear_taskbar_progress(&app);
@@ -949,6 +977,33 @@ pub async fn launch_instance(
     state.register_child_pid(pid);
 
     Ok(pid)
+}
+
+async fn reconcile_optional_mods_post_prepare(
+    http: &reqwest::Client,
+    data_directory: &std::path::Path,
+    instance_slug: &str,
+    mods_url: Option<&str>,
+) {
+    if let Some(trimmed_url) = mods_url.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Ok(resp) = http
+            .get(trimmed_url)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+        {
+            if resp.status().is_success() {
+                if let Ok(manifest) = resp.json::<Value>().await {
+                    if resolve_optional_mods_state(data_directory, instance_slug, &manifest).is_ok()
+                    {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = sync_optional_mods_on_disk(data_directory, instance_slug);
 }
 
 fn update_taskbar_progress_from_event(app: &AppHandle, event: &LaunchEvent) {
@@ -971,6 +1026,12 @@ fn update_taskbar_progress_from_event(app: &AppHandle, event: &LaunchEvent) {
             let _ = win.set_progress_bar(ProgressBarState {
                 status: Some(ProgressBarStatus::Normal),
                 progress: Some(pct),
+            });
+        }
+        LaunchEvent::Extract { .. } => {
+            let _ = win.set_progress_bar(ProgressBarState {
+                status: Some(ProgressBarStatus::Indeterminate),
+                progress: None,
             });
         }
         LaunchEvent::Data { .. } | LaunchEvent::Close { .. } | LaunchEvent::Error { .. } => {
@@ -1610,6 +1671,374 @@ mod tests {
             assert_eq!(p_fac.memory.min, "2560M");
             assert_eq!(p_fac.authenticator.meta.account_type, "AZauth");
         }
+    }
+
+    #[tokio::test]
+    async fn test_packaged_zip_distribution_and_first_launch_optional_mods_reconciliation() {
+        use minecraft_rust_core::bundle::BundleManager;
+        use minecraft_rust_core::downloader::Downloader;
+        use sha1::{Digest, Sha1};
+        use std::collections::HashMap;
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+        use zip::{CompressionMethod, ZipWriter};
+
+        fn sha1_hex(bytes: &[u8]) -> String {
+            let mut h = Sha1::new();
+            h.update(bytes);
+            hex::encode(h.finalize())
+        }
+
+        fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            {
+                let mut writer = ZipWriter::new(&mut cursor);
+                for &(rel_path, data) in entries {
+                    let method = if rel_path.ends_with(".jar") {
+                        CompressionMethod::Stored
+                    } else {
+                        CompressionMethod::Deflated
+                    };
+                    let opts = SimpleFileOptions::default().compression_method(method);
+                    writer.start_file(rel_path, opts).unwrap();
+                    writer.write_all(data).unwrap();
+                }
+                writer.finish().unwrap();
+            }
+            cursor.into_inner()
+        }
+
+        let core_jar = b"required-core-mod-v1";
+        let sodium_jar = b"optional-sodium-mod-v1";
+        let minimap_jar = b"optional-minimap-mod-v1";
+        let config_v1 = b"fov = 90\n";
+        let config_v2 = b"fov = 110\nrenderDistance = 16\n";
+
+        let zip_mods = build_zip(&[("mods/core.jar", core_jar)]);
+        let zip_mods_opt = build_zip(&[
+            ("mods/minimap.jar", minimap_jar),
+            ("mods/sodium.jar", sodium_jar),
+        ]);
+        let zip_cfg_v1 = build_zip(&[("config/client.toml", config_v1)]);
+        let zip_cfg_v2 = build_zip(&[("config/client.toml", config_v2)]);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base = format!("http://{addr}");
+
+        let manifest_v1 = json!({
+            "version": 2,
+            "packages": [
+                {
+                    "id": "pkg-config-p1-v1",
+                    "folder": "config",
+                    "part": 1,
+                    "url": format!("{base}/utils/packages/survival/pkg-config-p1-v1.zip"),
+                    "hash": sha1_hex(&zip_cfg_v1),
+                    "size": zip_cfg_v1.len(),
+                    "files_count": 1
+                },
+                {
+                    "id": "pkg-mods-p1-v1",
+                    "folder": "mods",
+                    "part": 1,
+                    "url": format!("{base}/utils/packages/survival/pkg-mods-p1-v1.zip"),
+                    "hash": sha1_hex(&zip_mods),
+                    "size": zip_mods.len(),
+                    "files_count": 1
+                },
+                {
+                    "id": "pkg-mods-optional-p1-v1",
+                    "folder": "mods-optional",
+                    "part": 1,
+                    "url": format!("{base}/utils/packages/survival/pkg-mods-optional-p1-v1.zip"),
+                    "hash": sha1_hex(&zip_mods_opt),
+                    "size": zip_mods_opt.len(),
+                    "files_count": 2
+                }
+            ],
+            "files": [
+                {
+                    "path": "config/client.toml",
+                    "size": config_v1.len(),
+                    "hash": sha1_hex(config_v1),
+                    "url": format!("{base}/storage/instances/survival/config/client.toml"),
+                    "package": "pkg-config-p1-v1"
+                },
+                {
+                    "path": "mods/core.jar",
+                    "size": core_jar.len(),
+                    "hash": sha1_hex(core_jar),
+                    "url": format!("{base}/storage/instances/survival/mods/core.jar"),
+                    "package": "pkg-mods-p1-v1"
+                },
+                {
+                    "path": "mods/minimap.jar",
+                    "size": minimap_jar.len(),
+                    "hash": sha1_hex(minimap_jar),
+                    "url": format!("{base}/storage/instances/survival/mods/minimap.jar"),
+                    "package": "pkg-mods-optional-p1-v1"
+                },
+                {
+                    "path": "mods/sodium.jar",
+                    "size": sodium_jar.len(),
+                    "hash": sha1_hex(sodium_jar),
+                    "url": format!("{base}/storage/instances/survival/mods/sodium.jar"),
+                    "package": "pkg-mods-optional-p1-v1"
+                }
+            ]
+        });
+
+        let manifest_v2 = json!({
+            "version": 2,
+            "packages": [
+                {
+                    "id": "pkg-config-p1-v2",
+                    "folder": "config",
+                    "part": 1,
+                    "url": format!("{base}/utils/packages/survival/pkg-config-p1-v2.zip"),
+                    "hash": sha1_hex(&zip_cfg_v2),
+                    "size": zip_cfg_v2.len(),
+                    "files_count": 1
+                },
+                {
+                    "id": "pkg-mods-p1-v1",
+                    "folder": "mods",
+                    "part": 1,
+                    "url": format!("{base}/utils/packages/survival/pkg-mods-p1-v1.zip"),
+                    "hash": sha1_hex(&zip_mods),
+                    "size": zip_mods.len(),
+                    "files_count": 1
+                },
+                {
+                    "id": "pkg-mods-optional-p1-v1",
+                    "folder": "mods-optional",
+                    "part": 1,
+                    "url": format!("{base}/utils/packages/survival/pkg-mods-optional-p1-v1.zip"),
+                    "hash": sha1_hex(&zip_mods_opt),
+                    "size": zip_mods_opt.len(),
+                    "files_count": 2
+                }
+            ],
+            "files": [
+                {
+                    "path": "config/client.toml",
+                    "size": config_v2.len(),
+                    "hash": sha1_hex(config_v2),
+                    "url": format!("{base}/storage/instances/survival/config/client.toml"),
+                    "package": "pkg-config-p1-v2"
+                },
+                {
+                    "path": "mods/core.jar",
+                    "size": core_jar.len(),
+                    "hash": sha1_hex(core_jar),
+                    "url": format!("{base}/storage/instances/survival/mods/core.jar"),
+                    "package": "pkg-mods-p1-v1"
+                },
+                {
+                    "path": "mods/minimap.jar",
+                    "size": minimap_jar.len(),
+                    "hash": sha1_hex(minimap_jar),
+                    "url": format!("{base}/storage/instances/survival/mods/minimap.jar"),
+                    "package": "pkg-mods-optional-p1-v1"
+                },
+                {
+                    "path": "mods/sodium.jar",
+                    "size": sodium_jar.len(),
+                    "hash": sha1_hex(sodium_jar),
+                    "url": format!("{base}/storage/instances/survival/mods/sodium.jar"),
+                    "package": "pkg-mods-optional-p1-v1"
+                }
+            ]
+        });
+
+        let mods_manifest = json!({
+            "optionalMods": ["sodium.jar", "minimap.jar"],
+            "mods": {
+                "sodium.jar": {
+                    "name": "Sodium",
+                    "description": "FPS boost",
+                    "recommanded": true,
+                    "recommended": true
+                },
+                "minimap.jar": {
+                    "name": "Xaero Minimap",
+                    "description": "Minimap",
+                    "recommanded": false,
+                    "recommended": false
+                }
+            }
+        });
+
+        let active_generation = Arc::new(Mutex::new(1_u8));
+        let hit_counts: Arc<Mutex<HashMap<String, usize>>> = Arc::new(Mutex::new(HashMap::new()));
+        let saw_accept_packages = Arc::new(Mutex::new(false));
+
+        let gen_srv = Arc::clone(&active_generation);
+        let hits_srv = Arc::clone(&hit_counts);
+        let hdr_srv = Arc::clone(&saw_accept_packages);
+        let m1_str = serde_json::to_vec(&manifest_v1).unwrap();
+        let m2_str = serde_json::to_vec(&manifest_v2).unwrap();
+        let mods_str = serde_json::to_vec(&mods_manifest).unwrap();
+
+        let server = tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = vec![0_u8; 8192];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                if n == 0 {
+                    continue;
+                }
+                let req_str = String::from_utf8_lossy(&buf[..n]);
+                if req_str.to_ascii_lowercase().contains("x-accept-packages: 1") {
+                    *hdr_srv.lock().unwrap() = true;
+                }
+                let path = req_str
+                    .lines()
+                    .next()
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .unwrap_or("/")
+                    .to_string();
+
+                *hits_srv.lock().unwrap().entry(path.clone()).or_insert(0) += 1;
+
+                let (ctype, body): (&str, Vec<u8>) = match path.as_str() {
+                    "/utils/instances/survival/files" => {
+                        let g = *gen_srv.lock().unwrap();
+                        if g == 1 {
+                            ("application/json", m1_str.clone())
+                        } else {
+                            ("application/json", m2_str.clone())
+                        }
+                    }
+                    "/utils/instances/survival/mods" => ("application/json", mods_str.clone()),
+                    "/utils/packages/survival/pkg-config-p1-v1.zip" => {
+                        ("application/zip", zip_cfg_v1.clone())
+                    }
+                    "/utils/packages/survival/pkg-config-p1-v2.zip" => {
+                        ("application/zip", zip_cfg_v2.clone())
+                    }
+                    "/utils/packages/survival/pkg-mods-p1-v1.zip" => {
+                        ("application/zip", zip_mods.clone())
+                    }
+                    "/utils/packages/survival/pkg-mods-optional-p1-v1.zip" => {
+                        ("application/zip", zip_mods_opt.clone())
+                    }
+                    _ => ("application/json", br#"{"error":"not_found"}"#.to_vec()),
+                };
+
+                let status = if body == br#"{"error":"not_found"}"# {
+                    "404 Not Found"
+                } else {
+                    "200 OK"
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = sock.write_all(header.as_bytes()).await;
+                let _ = sock.write_all(&body).await;
+            }
+        });
+
+        let tmp = tempfile::tempdir().unwrap();
+        let game_root = tmp.path();
+        let inst_dir = game_root.join("instances/survival");
+        let bm = BundleManager::new(
+            game_root.to_path_buf(),
+            inst_dir.clone(),
+            true,
+            &["options.txt".to_string(), "launcher_config".to_string()],
+        );
+        let downloader = Downloader::new(4, 10_000);
+        let http = downloader.client().clone();
+        let files_url = format!("{base}/utils/instances/survival/files");
+        let mods_url = format!("{base}/utils/instances/survival/mods");
+        let extract_events = Arc::new(Mutex::new(Vec::<String>::new()));
+        let ext_cb = Arc::clone(&extract_events);
+        let cb: Arc<dyn Fn(LaunchEvent) + Send + Sync> = Arc::new(move |ev| {
+            if let LaunchEvent::Extract { message } = ev {
+                ext_cb.lock().unwrap().push(message);
+            }
+        });
+
+        // --- Launch 1: Brand-new install (3 ZIP packages + post-prepare optional mod reconciliation) ---
+        let dist1 = bm
+            .fetch_custom_distribution_packaged(&http, Some(&files_url))
+            .await
+            .unwrap();
+        assert!(*saw_accept_packages.lock().unwrap(), "X-Accept-Packages: 1 header must be sent");
+        assert_eq!(dist1.packages.len(), 3);
+        bm.sync_bundle(&downloader, &dist1.items, &dist1.packages, &cb)
+            .await
+            .unwrap();
+        reconcile_optional_mods_post_prepare(&http, game_root, "survival", Some(&mods_url)).await;
+
+        assert_eq!(std::fs::read(inst_dir.join("mods/core.jar")).unwrap(), core_jar);
+        assert_eq!(std::fs::read(inst_dir.join("mods/sodium.jar")).unwrap(), sodium_jar);
+        assert!(
+            !inst_dir.join("mods/minimap.jar").exists()
+                && inst_dir.join("mods/minimap.jar-disable").exists(),
+            "Non-recommended optional mod extracted from ZIP must be renamed to .jar-disable before JVM launch!"
+        );
+        assert_eq!(
+            std::fs::read(inst_dir.join("config/client.toml")).unwrap(),
+            config_v1
+        );
+        assert_eq!(extract_events.lock().unwrap().len(), 3);
+
+        // --- Launch 2: Up-to-date re-launch (0 ZIP packages re-downloaded!) ---
+        hit_counts.lock().unwrap().clear();
+        let dist2 = bm
+            .fetch_custom_distribution_packaged(&http, Some(&files_url))
+            .await
+            .unwrap();
+        bm.sync_bundle(&downloader, &dist2.items, &dist2.packages, &cb)
+            .await
+            .unwrap();
+        reconcile_optional_mods_post_prepare(&http, game_root, "survival", Some(&mods_url)).await;
+        {
+            let hits = hit_counts.lock().unwrap();
+            assert_eq!(hits.get("/utils/packages/survival/pkg-config-p1-v1.zip").copied().unwrap_or(0), 0);
+            assert_eq!(hits.get("/utils/packages/survival/pkg-mods-p1-v1.zip").copied().unwrap_or(0), 0);
+            assert_eq!(hits.get("/utils/packages/survival/pkg-mods-optional-p1-v1.zip").copied().unwrap_or(0), 0);
+        }
+
+        // --- Launch 3: Server modifies ONLY `config/client.toml` -> ONLY `pkg-config-p1-v2.zip` downloaded! ---
+        *active_generation.lock().unwrap() = 2;
+        hit_counts.lock().unwrap().clear();
+        let dist3 = bm
+            .fetch_custom_distribution_packaged(&http, Some(&files_url))
+            .await
+            .unwrap();
+        bm.sync_bundle(&downloader, &dist3.items, &dist3.packages, &cb)
+            .await
+            .unwrap();
+        reconcile_optional_mods_post_prepare(&http, game_root, "survival", Some(&mods_url)).await;
+        {
+            let hits = hit_counts.lock().unwrap();
+            assert_eq!(
+                hits.get("/utils/packages/survival/pkg-config-p1-v2.zip").copied().unwrap_or(0),
+                1,
+                "Modified config ZIP must be downloaded once"
+            );
+            assert_eq!(
+                hits.get("/utils/packages/survival/pkg-mods-p1-v1.zip").copied().unwrap_or(0),
+                0,
+                "Unchanged mods ZIP must NOT be downloaded"
+            );
+            assert_eq!(
+                hits.get("/utils/packages/survival/pkg-mods-optional-p1-v1.zip").copied().unwrap_or(0),
+                0,
+                "Unchanged mods-optional ZIP must NOT be downloaded"
+            );
+        }
+        assert_eq!(
+            std::fs::read(inst_dir.join("config/client.toml")).unwrap(),
+            config_v2
+        );
+        assert!(inst_dir.join("mods/minimap.jar-disable").exists());
+
+        server.abort();
     }
 }
 

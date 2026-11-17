@@ -480,12 +480,14 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "discord-rich-presence",
+ "hex",
  "minecraft-rust-core",
  "reqwest 0.12.28",
  "roxmltree",
  "semver",
  "serde",
  "serde_json",
+ "sha1",
  "sysinfo",
  "tauri",
  "tauri-build",
@@ -495,6 +497,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "zip",
 ]
 
 [[package]]

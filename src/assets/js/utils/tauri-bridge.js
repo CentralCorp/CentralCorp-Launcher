@@ -189,10 +189,11 @@ export async function syncOptionalMods(data_directory, instance_slug) {
     });
 }
 
-export async function launchInstance(options, close_behavior = 'close-launcher') {
+export async function launchInstance(options, close_behavior = 'close-launcher', mods_url = null) {
     return invoke('launch_instance', {
         options,
         close_behavior,
+        mods_url: mods_url || null,
     });
 }
 

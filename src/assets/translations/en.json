@@ -115,5 +115,6 @@
     "no_cape": "No cape",
     "no_capes_owned": "No official capes available on this account.",
     "skin_updated": "Skin updated successfully!",
-    "cape_updated": "Cape updated!"
+    "cape_updated": "Cape updated!",
+    "extraction": "Extracting..."
 }

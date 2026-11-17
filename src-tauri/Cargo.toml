@@ -39,4 +39,8 @@ tracing = "0.1"
 url = { version = "2.5", features = ["serde"] }
 
 [dev-dependencies]
+hex = "0.4"
+sha1 = "0.10"
 tempfile = "3.13"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+

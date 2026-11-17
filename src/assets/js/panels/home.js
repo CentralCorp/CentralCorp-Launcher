@@ -393,13 +393,17 @@ class Home {
             const launcherSettings = (await this.database.get('1234', 'launcher'))?.value;
             this.currentCloseBehavior = launcherSettings?.launcher?.close || 'close-launcher';
             const opts = await this.getLaunchOptions(this.currentCloseBehavior);
+            const moddeEnabled = Boolean(this.activeInstance?.modde ?? this.config.modde ?? true);
+            const modsUrl = moddeEnabled
+                ? this.activeInstance?.mods_url || this.getFallbackModsUrl(this.activeInstance?.slug)
+                : null;
 
             playBtn.style.display = 'none';
             info.style.display = 'block';
             info.innerHTML = t('verification');
 
             try {
-                await launchInstance(opts, this.currentCloseBehavior);
+                await launchInstance(opts, this.currentCloseBehavior, modsUrl);
             } catch (err) {
                 console.error('Launch failed:', err);
                 this.handleLaunchError(err?.message || String(err), info, progressBar, playBtn);
@@ -432,7 +436,7 @@ class Home {
                 break;
             case 'extract':
                 console.log(event.message);
-                info.innerHTML = t('verification');
+                info.innerHTML = t('extraction') || t('verification');
                 break;
             case 'estimated':
                 if (typeof event.seconds_remaining === 'number' && Number.isFinite(event.seconds_remaining)) {
@@ -553,6 +557,18 @@ class Home {
                 : `${base}utils/instances/${slug}/files`;
         }
         return this.meta.env === 'azuriom' ? `${base}api/centralcorp/files` : `${base}data/`;
+    }
+
+    getFallbackModsUrl(slug) {
+        const base = this.meta.settings_url.endsWith('/')
+            ? this.meta.settings_url
+            : `${this.meta.settings_url}/`;
+        if (slug && slug !== 'default') {
+            return this.meta.env === 'azuriom'
+                ? `${base}api/centralcorp/instances/${slug}/mods`
+                : `${base}utils/instances/${slug}/mods`;
+        }
+        return this.meta.env === 'azuriom' ? `${base}api/centralcorp/mods` : `${base}utils/mods`;
     }
 
     updateProgressBar(progressBar, info, progress, size, text) {
