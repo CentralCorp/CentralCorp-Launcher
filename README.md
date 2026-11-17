@@ -70,7 +70,7 @@ The launcher checks its configured GitHub release repository on startup and prom
 
 ## Installation
 
-Follow the [CentralCorp installation guide](https://centralcorp.github.io/en/install/prerequis) to prepare the project, install the panel and configure the launcher. Ensure the Rust stable toolchain (`cargo`), platform WebView dependencies, and sibling `minecraft-java-core` (`minecraft-rust-core`) crate are present, then run:
+Follow the [CentralCorp installation guide](https://centralcorp.github.io/en/install/prerequis) to prepare the project, install the panel and configure the launcher. Ensure the Rust stable toolchain (`cargo`), platform WebView dependencies, and sibling [`minecraft-rust-core`](https://github.com/CentralCorp/minecraft-rust-core) crate (`../minecraft-rust-core`) are present, then run:
 
 ```bash
 npm install
@@ -99,6 +99,7 @@ The GitHub Actions workflow builds native Tauri v2 installers for Windows (`.msi
 
 - [Website and documentation](https://github.com/CentralCorp/centralcorp.github.io) — product pages and installation guides
 - [CentralCorp Launcher](https://github.com/CentralCorp/CentralCorp-Launcher) — customizable player application
+- [CentralCorp Rust Core](https://github.com/CentralCorp/minecraft-rust-core) — async Rust core launch & auth library
 - [CentralCorp Panel](https://github.com/CentralCorp/centralpanel-v2) — self-hosted Minecraft Launcher Panel
 - [CentralCorp Installer](https://github.com/CentralCorp/Installer) — hosting checks and panel deployment
 
