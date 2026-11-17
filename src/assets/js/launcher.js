@@ -6,264 +6,312 @@
  * Edited by CentralCorp Team
  */
 'use strict';
-const fs = require('fs');
-const { Microsoft, Mojang, AZauth } = require('minecraft-java-core-azbetter');
-const pkg = require('../package.json');
-const { ipcRenderer } = require('electron');
-const DiscordRPC = require('discord-rpc');
 
-import { config, logger, changePanel, database, addAccount, accountSelect, t } from './utils.js';
+import {
+    config,
+    logger,
+    changePanel,
+    database,
+    addAccount,
+    accountSelect,
+    initTranslations,
+    normalizeAccount,
+    getActiveInstance,
+    updatePlayerWidgets,
+    updatePlayButtonState,
+    resolveBackgroundUrl,
+    t,
+} from './utils.js';
+import {
+    getLauncherMeta,
+    minimizeWindow,
+    toggleMaximizeWindow,
+    closeWindow,
+    authAzuriomVerify,
+    authMicrosoftRefresh,
+    setDiscordRpc,
+} from './utils/tauri-bridge.js';
 import Login from './panels/login.js';
 import Home from './panels/home.js';
 import Settings from './panels/settings.js';
 
-const settings_url = pkg.user ? `${pkg.settings}/${pkg.user}` : pkg.settings;
-const urlPattern = /^(https?:\/\/)/;
-
 class Launcher {
     async init() {
         this.initLog();
-        console.log("Initializing Launcher...");
-        if (process.platform === "win32") this.initFrame();
+        await initTranslations();
+        const preloadTitle = document.getElementById('preload-title');
+        if (preloadTitle) preloadTitle.textContent = t('loading');
+
+        console.log('Initializing Launcher...');
+        this.meta = await getLauncherMeta();
+        this.initFrame();
+
         this.config = await config.GetConfig();
         this.applyAccentColor();
         this.news = await config.GetNews();
         this.database = await new database().init();
-        this.createPanels(Login, Home, Settings);
-        this.getAccounts();
+        this.activeInstance = await getActiveInstance(this.config, this.database);
+
+        await this.createPanels(Login, Home, Settings);
+        this.bindStateEvents();
+        await this.getAccounts();
         this.initDiscordRPC();
     }
 
     initLog() {
-        document.addEventListener("keydown", (e) => {
-            if ((e.ctrlKey && e.shiftKey && e.keyCode === 73) || e.keyCode === 123) {
-                ipcRenderer.send("main-window-dev-tools");
-            }
-        });
         new logger('Launcher', '#7289da');
     }
 
     initDiscordRPC() {
-        if (this.config.rpc_activation) {
-            const rpc = new DiscordRPC.Client({ transport: 'ipc' });
-            rpc.on('ready', () => {
-                const presence = {
-                    details: this.config.rpc_details,
-                    state: this.config.rpc_state,
-                    largeImageKey: this.config.rpc_large_image,
-                    largeImageText: this.config.rpc_large_text,
-                    smallImageKey: this.config.rpc_small_image,
-                    smallImageText: this.config.rpc_small_text,
-                    buttons: [
-                        { label: this.config.rpc_button1, url: this.config.rpc_button1_url },
-                        { label: this.config.rpc_button2, url: this.config.rpc_button2_url }
-                    ]
-                };
-                rpc.setActivity(presence);
+        if (this.config && this.config.rpc_activation && this.config.rpc_id) {
+            const rpcPayload = {
+                enabled: true,
+                client_id: String(this.config.rpc_id),
+                details: this.config.rpc_details || '',
+                state: this.config.rpc_state || '',
+                large_image: this.config.rpc_large_image || '',
+                large_text: this.config.rpc_large_text || '',
+                small_image: this.config.rpc_small_image || '',
+                small_text: this.config.rpc_small_text || '',
+                button1_label: this.config.rpc_button1 || '',
+                button1_url: this.config.rpc_button1_url || '',
+                button2_label: this.config.rpc_button2 || '',
+                button2_url: this.config.rpc_button2_url || '',
+            };
+            setDiscordRpc(rpcPayload).catch((err) => {
+                console.warn('Discord RPC unavailable:', err);
             });
-            rpc.login({ clientId: this.config.rpc_id }).catch(console.error);
         }
     }
 
     initFrame() {
-        console.log("Initializing Frame...");
-        document.querySelector(".frame").classList.toggle("hide");
-        document.querySelector(".dragbar").classList.toggle("hide");
+        console.log('Initializing Frame...');
+        const frame = document.querySelector('.frame');
+        const dragbar = document.querySelector('.dragbar');
+        if (frame) frame.classList.add('hide');
+        if (dragbar) dragbar.classList.add('hide');
 
-        document.querySelector("#minimize").addEventListener("click", () => {
-            ipcRenderer.send("main-window-minimize");
-        });
+        const minimize = document.querySelector('#minimize');
+        if (minimize) {
+            minimize.addEventListener('click', () => {
+                minimizeWindow();
+            });
+        }
 
-        let maximized = false;
-        const maximize = document.querySelector("#maximize");
-        maximize.addEventListener("click", () => {
-            ipcRenderer.send("main-window-maximize");
-            maximized = !maximized;
-            maximize.classList.toggle("icon-maximize");
-            maximize.classList.toggle("icon-restore-down");
-        });
+        const maximize = document.querySelector('#maximize');
+        if (maximize) {
+            maximize.addEventListener('click', async () => {
+                const isMax = await toggleMaximizeWindow();
+                maximize.classList.toggle('icon-maximize', !isMax);
+                maximize.classList.toggle('icon-restore-down', Boolean(isMax));
+            });
+        }
 
-        document.querySelector("#close").addEventListener("click", () => {
-            ipcRenderer.send("main-window-close");
-        });
-    }
-
-    createPanels(...panels) {
-        const panelsElem = document.querySelector(".panels");
-        for (const panel of panels) {
-            console.log(`Initializing ${panel.name} Panel...`);
-            const div = document.createElement("div");
-            div.classList.add("panel", panel.id);
-            div.innerHTML = fs.readFileSync(`${__dirname}/panels/${panel.id}.html`, "utf8");
-            panelsElem.appendChild(div);
-            new panel().init(this.config, this.news);
+        const close = document.querySelector('#close');
+        if (close) {
+            close.addEventListener('click', () => {
+                closeWindow();
+            });
         }
     }
 
+    async createPanels(...panels) {
+        const panelsElem = document.querySelector('.panels');
+        this.panelInstances = {};
+
+        for (const PanelClass of panels) {
+            console.log(`Initializing ${PanelClass.name} Panel...`);
+            const div = document.createElement('div');
+            div.classList.add('panel', PanelClass.id);
+
+            const res = await fetch(`./panels/${PanelClass.id}.html`);
+            div.innerHTML = await res.text();
+            panelsElem.appendChild(div);
+
+            const instance = new PanelClass();
+            this.panelInstances[PanelClass.id] = instance;
+            await instance.init(this.config, this.news);
+        }
+    }
+
+    bindStateEvents() {
+        window.addEventListener('instance-changed', async (e) => {
+            this.activeInstance = e.detail?.instance || await getActiveInstance(this.config, this.database);
+            const account = await this.getSelectedAccount();
+            if (account) {
+                updatePlayButtonState(account, this.activeInstance, this.config);
+                this.updateBackground(account);
+            }
+        });
+
+        window.addEventListener('account-changed', async (e) => {
+            const account = e.detail?.account || await this.getSelectedAccount();
+            if (account) {
+                this.activeInstance = await getActiveInstance(this.config, this.database);
+                updatePlayerWidgets(account, this.config);
+                updatePlayButtonState(account, this.activeInstance, this.config);
+                this.updateBackground(account);
+            }
+        });
+    }
+
+    async getSelectedAccount() {
+        const selectedUuid = (await this.database.get('1234', 'accounts-selected'))?.value?.selected;
+        if (!selectedUuid) return null;
+        const rec = await this.database.get(selectedUuid, 'accounts');
+        return rec?.value ? normalizeAccount(rec.value) : null;
+    }
+
     async getAccounts() {
-        const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        const AZAuth = new AZauth(this.getAzAuthUrl());
+        const azauthUrl = await config.getAzAuthUrl(this.config);
+        const panelBaseUrl = this.meta.env !== 'azuriom' ? await config.getPanelBaseUrl() : null;
         const accounts = await this.database.getAll('accounts');
         const selectedAccount = (await this.database.get('1234', 'accounts-selected'))?.value?.selected;
 
         if (!accounts.length) {
-            changePanel("login");
+            changePanel('login');
             this.hidePreloader();
-        } else {
-            for (let account of accounts) {
-                account = account.value;
-                if (account.meta.type === 'AZauth') {
-                    const refresh = await AZAuth.verify(account);
-                    console.log(refresh);
-                    console.log(`Initializing Mojang account ${account.name}...`);
+            return;
+        }
 
-                    if (refresh.error) {
-                        this.database.delete(account.uuid, 'accounts');
-                        if (account.uuid === selectedAccount) this.database.update({ uuid: "1234" }, 'accounts-selected');
-                        console.error(`[Account] ${account.uuid}: ${refresh.errorMessage}`);
+        for (const entry of accounts) {
+            const stored = normalizeAccount(entry?.value);
+            if (!stored) continue;
+
+            if (stored.meta?.type === 'Microsoft') {
+                console.log(`Refreshing Microsoft account ${stored.name}...`);
+                try {
+                    const refreshedRaw = await authMicrosoftRefresh(
+                        stored,
+                        this.config.client_id || null,
+                        panelBaseUrl
+                    );
+                    const refreshed = normalizeAccount(refreshedRaw);
+                    if (refreshed.user_info?.banned) {
+                        await this.database.delete(stored.uuid, 'accounts');
+                        if (stored.uuid === selectedAccount) {
+                            await this.database.update({ uuid: '1234' }, 'accounts-selected');
+                        }
+                        continue;
+                    }
+                    await this.database.update(refreshed, 'accounts');
+                    await addAccount(refreshed);
+                    if (stored.uuid === selectedAccount) {
+                        await accountSelect(refreshed.uuid, refreshed);
+                    }
+                } catch (err) {
+                    const msg = String(err?.message || err || '');
+                    console.error(`[Microsoft Account] ${stored.uuid}: ${msg}`);
+                    if (msg.includes('user_banned') || msg.includes('invalid_grant') || msg.includes('unauthorized')) {
+                        await this.database.delete(stored.uuid, 'accounts');
+                        if (stored.uuid === selectedAccount) {
+                            await this.database.update({ uuid: '1234' }, 'accounts-selected');
+                        }
+                    } else {
+                        // Keep cached Microsoft session if temporarily offline
+                        await addAccount(stored);
+                        if (stored.uuid === selectedAccount) {
+                            await accountSelect(stored.uuid, stored);
+                        }
+                    }
+                }
+            } else if (stored.meta?.type === 'AZauth') {
+                console.log(`Verifying Azuriom account ${stored.name}...`);
+                if (!azauthUrl) {
+                    await addAccount(stored);
+                    if (stored.uuid === selectedAccount) {
+                        await accountSelect(stored.uuid, stored);
+                    }
+                    continue;
+                }
+                try {
+                    const verifiedRaw = await authAzuriomVerify(azauthUrl, stored.access_token);
+                    const verified = normalizeAccount(verifiedRaw);
+
+                    if (this.config.email_verified && !verified.user_info?.verified) {
+                        await this.database.delete(stored.uuid, 'accounts');
+                        if (stored.uuid === selectedAccount) {
+                            await this.database.update({ uuid: '1234' }, 'accounts-selected');
+                        }
                         continue;
                     }
 
-                    const refreshAccounts = {
-                        access_token: refresh.access_token,
-                        client_token: refresh.uuid,
-                        uuid: refresh.uuid,
-                        name: refresh.name,
-                        user_properties: refresh.user_properties,
-                        meta: {
-                            type: refresh.meta.type,
-                            offline: refresh.meta.offline
-                        },
-                        user_info: {
-                            role: refresh.user_info.role,
-                            monnaie: refresh.user_info.money,
-                            verified: refresh.user_info.verified,
-                        },
-                    };
-
-                    if (this.config.email_verified && !account.user_info.verified) {
-                        this.database.delete(account.uuid, 'accounts');
-                        if (account.uuid === selectedAccount) this.database.update({ uuid: "1234" }, 'accounts-selected');
+                    await this.database.update(verified, 'accounts');
+                    await addAccount(verified);
+                    if (stored.uuid === selectedAccount) {
+                        await accountSelect(verified.uuid, verified);
                     }
-
-                    this.database.update(refreshAccounts, 'accounts');
-                    addAccount(refreshAccounts);
-                    if (account.uuid === selectedAccount) accountSelect(refresh.uuid);
-                } else {
-                    this.database.delete(account.uuid, 'accounts');
-                    if (account.uuid === selectedAccount) this.database.update({ uuid: "1234" }, 'accounts-selected');
+                } catch (err) {
+                    console.error(`[AZauth Account] ${stored.uuid}:`, err);
+                    await this.database.delete(stored.uuid, 'accounts');
+                    if (stored.uuid === selectedAccount) {
+                        await this.database.update({ uuid: '1234' }, 'accounts-selected');
+                    }
                 }
             }
-
-            if (!(await this.database.get('1234', 'accounts-selected')).value.selected) {
-                const uuid = (await this.database.getAll('accounts'))[0]?.value?.uuid;
-                if (uuid) {
-                    this.database.update({ uuid: "1234", selected: uuid }, 'accounts-selected');
-                    accountSelect(uuid);
-                }
-            }
-
-            if ((await this.database.getAll('accounts')).length === 0) {
-                changePanel("login");
-                this.hidePreloader();
-                return;
-            }
-            await this.refreshDataAndPreload();
         }
+
+        const remainingAccounts = await this.database.getAll('accounts');
+        if (!remainingAccounts.length) {
+            changePanel('login');
+            this.hidePreloader();
+            return;
+        }
+
+        let currentSelected = (await this.database.get('1234', 'accounts-selected'))?.value?.selected;
+        if (!currentSelected || !remainingAccounts.some((a) => a.value?.uuid === currentSelected)) {
+            const firstAcc = normalizeAccount(remainingAccounts[0]?.value);
+            if (firstAcc?.uuid) {
+                await this.database.update({ uuid: '1234', selected: firstAcc.uuid }, 'accounts-selected');
+                await accountSelect(firstAcc.uuid, firstAcc);
+            }
+        }
+
+        await this.refreshDataAndPreload();
     }
 
     hidePreloader() {
-        const preloader = document.querySelector(".preload-content");
+        const preloader = document.querySelector('.preload-content');
         if (preloader) {
             preloader.classList.add('fade-out');
             setTimeout(() => {
-                preloader.style.display = "none";
+                preloader.style.display = 'none';
             }, 500);
         }
     }
 
     async refreshDataAndPreload() {
-        document.querySelector('.player-role').innerHTML = '';
-        document.querySelector('.player-monnaie').innerHTML = '';
-        document.querySelector('.player-tooltip-role').innerHTML = '';
+        const account = await this.getSelectedAccount();
+        if (!account) {
+            changePanel('login');
+            this.hidePreloader();
+            return;
+        }
+
+        this.activeInstance = await getActiveInstance(this.config, this.database);
+        updatePlayerWidgets(account, this.config);
+        updatePlayButtonState(account, this.activeInstance, this.config);
 
         const loadPromises = [];
-        loadPromises.push(this.initPreviewSkin());
-
-        const uuid = (await this.database.get('1234', 'accounts-selected')).value;
-        const account = (await this.database.get(uuid.selected, 'accounts')).value;
-
-        this.updateRole(account);
-        this.updateMoney(account);
-        this.updateWhitelist(account);
-
+        if (this.panelInstances?.settings) {
+            loadPromises.push(this.panelInstances.settings.initPreviewSkin());
+        }
+        if (this.panelInstances?.home) {
+            loadPromises.push(this.panelInstances.home.refreshInstanceView());
+        }
         loadPromises.push(this.preloadBackground(account));
         loadPromises.push(this.preloadNewsImages());
 
-        const timeout = new Promise(resolve => setTimeout(resolve, 5000));
-        await Promise.race([
-            Promise.all(loadPromises),
-            timeout
-        ]);
+        const timeout = new Promise((resolve) => setTimeout(resolve, 5000));
+        await Promise.race([Promise.all(loadPromises), timeout]);
+
         this.updateBackground(account);
-        changePanel("home");
+        changePanel('home');
         this.hidePreloader();
     }
 
-    async refreshData() {
-        document.querySelector('.player-role').innerHTML = '';
-        document.querySelector('.player-monnaie').innerHTML = '';
-        document.querySelector('.player-tooltip-role').innerHTML = '';
-        await this.initPreviewSkin();
-        await this.initOthers();
-    }
-
-    async initPreviewSkin() {
-        console.log('initPreviewSkin called');
-        const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        const azauth = this.getAzAuthUrl();
-        const uuid = (await this.database.get('1234', 'accounts-selected')).value;
-        const account = (await this.database.get(uuid.selected, 'accounts')).value;
-
-        document.querySelector('.player-skin-title').innerHTML = `Skin de ${account.name}`;
-        document.querySelector('.skin-renderer-settings').src = `${azauth}skin3d/3d-api/skin-api/${account.name}`;
-    }
-
-    async initOthers() {
-        const uuid = (await this.database.get('1234', 'accounts-selected')).value;
-        const account = (await this.database.get(uuid.selected, 'accounts')).value;
-
-        this.updateRole(account);
-        this.updateMoney(account);
-        this.updateWhitelist(account);
-        this.updateBackground(account);
-    }
-
-    updateRole(account) {
-        const tooltipRole = document.querySelector('.player-tooltip-role');
-        const sidebarRole = document.querySelector('.player-role');
-
-        if (this.config.role && account.user_info.role) {
-            const roleName = account.user_info.role.name;
-            tooltipRole.textContent = roleName;
-            sidebarRole.textContent = roleName;
-        } else {
-            tooltipRole.style.display = 'none';
-            sidebarRole.style.display = 'none';
-        }
-    }
-
-    updateMoney(account) {
-        const monnaieEl = document.querySelector('.player-monnaie');
-        if (this.config.money) {
-            monnaieEl.textContent = `${account.user_info.monnaie} pts`;
-        } else {
-            monnaieEl.style.display = 'none';
-        }
-    }
-
     applyAccentColor() {
-        if (this.config.accent_color) {
+        if (this.config.accent_color && /^#[0-9a-fA-F]{6}$/.test(this.config.accent_color)) {
             const root = document.documentElement;
             const color = this.config.accent_color;
             root.style.setProperty('--accent-color', color);
@@ -288,46 +336,9 @@ class Launcher {
         return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
     }
 
-    updateWhitelist(account) {
-        const playBtn = document.querySelector(".play-btn");
-        if (this.config.whitelist_activate &&
-            (!this.config.whitelist.includes(account.name) &&
-                !this.config.whitelist_roles.includes(account.user_info.role.name))) {
-            playBtn.style.background = "#696969";
-            playBtn.style.pointerEvents = "none";
-            playBtn.style.boxShadow = "none";
-            playBtn.style.opacity = "0.6";
-            playBtn.title = t('unavailable');
-        } else {
-            playBtn.style.background = "";
-            playBtn.style.pointerEvents = "auto";
-            playBtn.style.boxShadow = "";
-            playBtn.style.opacity = "1";
-            playBtn.title = t('play');
-        }
-    }
-
     preloadBackground(account) {
         return new Promise((resolve) => {
-            const defaultBg = '../src/assets/images/background/light.jpg';
-            let backgroundUrl = null;
-
-            if (this.config.role_data && account.user_info && account.user_info.role) {
-                for (const roleKey in this.config.role_data) {
-                    if (this.config.role_data.hasOwnProperty(roleKey)) {
-                        const role = this.config.role_data[roleKey];
-                        if (account.user_info.role.name === role.name && role.background) {
-                            const urlPattern = /^(https?:\/\/)/;
-                            if (urlPattern.test(role.background)) {
-                                backgroundUrl = role.background;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-
-            const finalBgUrl = backgroundUrl || defaultBg;
+            const finalBgUrl = resolveBackgroundUrl(account, this.activeInstance, this.config);
             const img = new Image();
             img.onload = () => resolve();
             img.onerror = () => resolve();
@@ -346,10 +357,10 @@ class Launcher {
             let loadedCount = 0;
             const totalImages = newsImages.length;
 
-            newsImages.forEach(newsImg => {
+            newsImages.forEach((newsImg) => {
                 const bgImage = newsImg.style.backgroundImage;
                 if (bgImage && bgImage !== 'none') {
-                    const url = bgImage.replace(/url\(['"]?([^'"\)]+)['"]?\)/g, '$1');
+                    const url = bgImage.replace(/url\(['"]?([^'")]+)['"]?\)/g, '$1');
                     const img = new Image();
                     img.onload = img.onerror = () => {
                         loadedCount++;
@@ -365,25 +376,7 @@ class Launcher {
     }
 
     updateBackground(account) {
-        const defaultBg = '../src/assets/images/background/light.jpg';
-        let backgroundUrl = null;
-
-        if (this.config.role_data && account.user_info && account.user_info.role) {
-            for (const roleKey in this.config.role_data) {
-                if (this.config.role_data.hasOwnProperty(roleKey)) {
-                    const role = this.config.role_data[roleKey];
-                    if (account.user_info.role.name === role.name && role.background) {
-                        const urlPattern = /^(https?:\/\/)/;
-                        if (urlPattern.test(role.background)) {
-                            backgroundUrl = role.background;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        const finalBgUrl = backgroundUrl || defaultBg;
+        const finalBgUrl = resolveBackgroundUrl(account, this.activeInstance, this.config);
 
         if (!document.getElementById('bg-transition-overlay')) {
             const overlay = document.createElement('div');
@@ -397,30 +390,18 @@ class Launcher {
         }
 
         const overlay = document.getElementById('bg-transition-overlay');
-        overlay.style.backgroundImage = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${finalBgUrl})`;
+        overlay.style.backgroundImage = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url("${finalBgUrl}")`;
 
         requestAnimationFrame(() => {
             overlay.style.opacity = '1';
         });
 
         setTimeout(() => {
-            document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${finalBgUrl}) black no-repeat center center scroll`;
+            document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url("${finalBgUrl}") black no-repeat center center scroll`;
             document.body.style.backgroundSize = 'cover';
             overlay.style.opacity = '0';
         }, 550);
     }
-    getAzAuthUrl() {
-        const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        return pkg.env === 'azuriom'
-            ? baseUrl
-            : this.config.azauth.endsWith('/')
-                ? this.config.azauth
-                : `${this.config.azauth}/`;
-    }
 }
 
 new Launcher().init();
-
-document.getElementById('preload-title').textContent = t('loading');
-
-

@@ -1,65 +1,96 @@
 name: Launcher Build
+
 on:
   push:
-    branches: [ master ]
+    branches: [ master, main, v2-rework ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get version
-        id: get_version
-        run: |
-          VERSION=$(jq -r .version package.json)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_ENV
-      
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ env.version }}
-          release_name: release ${{ env.version }}
-          draft: false
-          prerelease: ${{ contains(env.version, 'beta') || contains(env.version, 'alpha') }}
-
   build-launcher:
-    needs: create-release
-    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest, windows-2022]
+        include:
+          - platform: 'macos-latest'
+            args: '--target universal-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
 
+    runs-on: ${{ matrix.platform }}
     steps:
-      - name: Check out Git repository
+      - name: Check out CentralCorp-Launcher
         uses: actions/checkout@v4
+        with:
+          path: CentralCorp/CentralCorp-Launcher
 
-      - name: Set up Node
+      - name: Resolve minecraft-rust-core branch
+        id: core-ref
+        shell: bash
+        run: |
+          CANDIDATE="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          if git ls-remote --exit-code --heads https://github.com/Riptiaz/minecraft-java-core.git "$CANDIDATE" >/dev/null 2>&1; then
+            echo "ref=$CANDIDATE" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --heads https://github.com/Riptiaz/minecraft-java-core.git v2-rework >/dev/null 2>&1; then
+            echo "ref=v2-rework" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=master" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out minecraft-rust-core
+        uses: actions/checkout@v4
+        with:
+          repository: Riptiaz/minecraft-java-core
+          ref: ${{ steps.core-ref.outputs.ref }}
+          path: Riptiaz/minecraft-java-core
+
+      - name: Install Linux WebKit2GTK & AppIndicator dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: 3.x
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - name: Install Dependencies
-        run: npm ci
-        shell: bash
+      - name: Rust Cargo Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            Riptiaz/minecraft-java-core
+            CentralCorp/CentralCorp-Launcher/src-tauri -> target
 
-      - name: Build and Publish
+      - name: Install Tauri CLI
+        working-directory: CentralCorp/CentralCorp-Launcher
+        run: npm install --no-package-lock
+
+      - name: Build Tauri Bundles (CI Check)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        working-directory: CentralCorp/CentralCorp-Launcher
+        run: npx tauri build ${{ matrix.args }}
+
+      - name: Build and Publish Tauri Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: tauri-apps/tauri-action@v0
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build -- --publish always
-        shell: bash
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: CentralCorp/CentralCorp-Launcher
+          tagName: v__VERSION__
+          releaseName: 'Release v__VERSION__'
+          releaseBody: 'Download the installer for your platform below.'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

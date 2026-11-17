@@ -52,27 +52,25 @@ The launcher consumes configuration from either [CentralCorp Panel](https://gith
 
 Read the [Minecraft Launcher Panel documentation](https://centralcorp.github.io/en/minecraft-launcher-panel) for the complete data flow and hosting requirements.
 
-## Azuriom integration
+## Azuriom & Microsoft authentication
 
-Player authentication uses the Azuriom authentication API. In standalone panel mode, the panel stores the Azuriom URL and API key and exposes the launcher configuration. In direct Azuriom mode, the launcher reads the CentralCorp plugin endpoints from the configured site.
-
-This launcher targets offline-mode Minecraft server setups connected to Azuriom. Microsoft online-mode servers are not supported.
+Player authentication supports Azuriom (`azuriom`), Microsoft online-mode (`microsoft`), or dual-choice (`both`) according to the panel `auth_mode`. In standalone panel mode, CentralPanel can synchronize Microsoft players' roles, currency, and ban status alongside Azuriom accounts. In direct Azuriom mode, the launcher reads the CentralCorp plugin endpoints from the configured site.
 
 ## ⚙️ Forge and Fabric
 
-The selected Minecraft version and loader are returned by the panel and passed to the launch engine. Forge and Fabric are supported by the current panel configuration, alongside LegacyFabric, NeoForge and Quilt. Test every modpack against its exact Minecraft, loader and mod versions before distribution.
+The selected Minecraft version and loader are returned by the panel and passed to the Rust `minecraft-rust-core` launch engine. Forge and Fabric are supported by the current panel configuration, alongside LegacyFabric, NeoForge and Quilt. Test every modpack against its exact Minecraft, loader and mod versions before distribution.
 
 ## Optional mods
 
-The panel can describe mods that players may enable or disable before launch. Recommendation labels and mod images are also exposed by the current optional-mod configuration.
+The panel can describe mods per instance that players may enable or disable before launch. Recommendation labels and mod images are also exposed by the optional-mod configuration.
 
 ## Updates
 
-The launcher checks its configured release repository through the Electron update mechanism. Game files are handled separately: the panel manifest lets the launcher verify and synchronize the files required by the selected configuration.
+The launcher checks its configured GitHub release repository on startup and prompts when a newer SemVer release is available. Game files are handled separately per instance: the panel manifest lets the launcher verify and synchronize the files required by the selected instance.
 
 ## Installation
 
-Follow the [CentralCorp installation guide](https://centralcorp.github.io/en/install/prerequis) to prepare the project, install the panel and configure the launcher. For a local launcher checkout:
+Follow the [CentralCorp installation guide](https://centralcorp.github.io/en/install/prerequis) to prepare the project, install the panel and configure the launcher. Ensure the Rust stable toolchain (`cargo`), platform WebView dependencies, and sibling `minecraft-java-core` (`minecraft-rust-core`) crate are present, then run:
 
 ```bash
 npm install
@@ -81,7 +79,7 @@ npm run dev
 
 ## Configuration
 
-The repository-level values in `package.json` define the launcher identity, version, environment, panel or Azuriom URL, and publishing repository. The build script currently reads the existing `preductname` key for the product name; keep that spelling unless the build script and configuration are migrated together.
+The repository-level values in `package.json` define the launcher identity (`productName` / `preductname`), `version`, `env` (`panel` or `azuriom`), `settings` URL, and publishing `repository`.
 
 Panel-managed settings are documented in the [panel configuration guide](https://centralcorp.github.io/en/install/step4).
 
@@ -95,7 +93,7 @@ npm run dev
 npm run build
 ```
 
-The GitHub workflow creates a release and builds packages for Windows (`.exe`), Linux (`.AppImage`) and macOS (`.dmg` and `.zip`). Update the launcher version before publishing a release.
+The GitHub Actions workflow builds native Tauri v2 installers for Windows (`.msi` / `.exe`), Linux (`.AppImage` / `.deb`) and macOS universal (`.dmg` / `.app.tar.gz`). Update the launcher version in `package.json` and `src-tauri/tauri.conf.json` before publishing a release.
 
 ## CentralCorp ecosystem
 

@@ -5,66 +5,77 @@
  *
  * Edited by CentralCorp Team
  */
-const pkg = require('../package.json');
-const fetch = require("node-fetch");
-const convert = require("xml-js");
-
-const settings_url = pkg.user ? `${pkg.settings}/${pkg.user}` : pkg.settings;
-
-function getConfigUrl() {
-    const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-    return pkg.env === 'azuriom' ? `${baseUrl}api/centralcorp/options` : `${baseUrl}utils/api`;
-}
-
-function getAzAuthUrl(config) {
-    const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-    return pkg.env === 'azuriom' ? baseUrl : config.azauth.endsWith('/') ? config.azauth : `${config.azauth}/`;
-}
+import { getLauncherMeta, fetchRemoteConfig, fetchNews } from './tauri-bridge.js';
 
 class Config {
-    async GetConfig() {
+    constructor() {
+        this.config = null;
+        this.meta = null;
+        this._activeInstance = null;
+    }
+
+    async ensureMeta() {
+        if (!this.meta) {
+            this.meta = await getLauncherMeta();
+        }
+        return this.meta;
+    }
+
+    async GetConfig(forceRefresh = false) {
         try {
-            const response = await fetch(getConfigUrl());
-            return await response.json();
+            await this.ensureMeta();
+            if (!this.config || forceRefresh) {
+                this.config = await fetchRemoteConfig();
+            }
+            return this.config;
         } catch (error) {
-            console.error("Failed to fetch config:", error);
+            console.error('Failed to fetch config:', error);
             throw error;
         }
+    }
+
+    async getPanelBaseUrl() {
+        const meta = await this.ensureMeta();
+        const base = meta.settings_url || '';
+        return base.endsWith('/') ? base : `${base}/`;
+    }
+
+    async getAzAuthUrl(cfg = null) {
+        const meta = await this.ensureMeta();
+        const activeCfg = cfg || this.config || {};
+        const base = meta.settings_url.endsWith('/') ? meta.settings_url : `${meta.settings_url}/`;
+        if (meta.env === 'azuriom') {
+            return base;
+        }
+        const az = activeCfg.azauth || '';
+        if (!az) return '';
+        return az.endsWith('/') ? az : `${az}/`;
     }
 
     async GetNews() {
         try {
-            this.config = await this.GetConfig();
-            const newsUrl = new URL('/api/rss', getAzAuthUrl(this.config));
+            const cfg = await this.GetConfig();
+            const meta = await this.ensureMeta();
+            const base = await this.getPanelBaseUrl();
+            const azauthUrl = await this.getAzAuthUrl(cfg);
 
-            const rss = await fetch(newsUrl).then(res => res.text());
-            const rssParsed = JSON.parse(convert.xml2json(rss, { compact: true }));
-            const items = rssParsed.rss.channel.item;
-
-            if (!items) {
-                return [{
-                    title: "Aucun article disponible",
-                    content: "Aucun article n'a été trouvé.",
-                    author: "",
-                    publish_date: "2024"
-                }];
+            let newsSource = cfg.news_source;
+            if (!newsSource) {
+                newsSource = meta.env === 'azuriom' ? 'azuriom' : (azauthUrl ? 'azuriom' : 'panel');
             }
+            const newsUrl = cfg.news_url || (meta.env !== 'azuriom' ? `${base}utils/news` : null);
 
-            return Array.isArray(items) ? items.map(this.parseNewsItem) : [this.parseNewsItem(items)];
+            const items = await fetchNews({
+                news_source: newsSource,
+                news_url: newsUrl,
+                azauth_url: azauthUrl || null,
+            });
+
+            return Array.isArray(items) ? items : [];
         } catch (error) {
-            console.error("Failed to fetch news:", error);
-            throw error;
+            console.error('Failed to fetch news:', error);
+            return null;
         }
-    }
-
-    parseNewsItem(item) {
-        return {
-            title: item.title._text,
-            content: item['content:encoded']._text,
-            author: item['dc:creator']._text,
-            publish_date: item.pubDate._text,
-            image: item.enclosure && item.enclosure._attributes ? item.enclosure._attributes.url : null
-        };
     }
 }
 

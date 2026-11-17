@@ -1,4 +1,3 @@
-<link rel='stylesheet' href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,100..700;1,100..700&display=swap"
     rel="stylesheet">
 <div class="settings-content">
@@ -76,42 +75,61 @@
             </div>
         </div>
     </div>
-</div>
-<div class="tabs-settings-content">
-    <div class="settings-content-scroll">
-        <div class="center-page">
-            <div class="title-settings" id="mods-title"></div>
-            <div class="mods-info">
-                <div class="information" id="mods-info"></div>
-                <div class="mods-list" id="mods-list"></div>
-            </div>
-        </div>
-    </div>
-</div>
-<div class="tabs-settings-content">
-    <div class="player-skin-title title-settings" id="skin-title"></div>
-    <div class="center-page">
-        <div class="skin-section-layout">
-            <div class="skin-preview-container">
-                <iframe frameborder="0" id="skinRender2" class="skin-renderer-settings"
-                    style="border: none; width: 319px; height: 221px;" src=""></iframe>
-            </div>
-            <div class="skin-upload-container">
-                <input type="file" id="fileInput" accept="image/png" style="display: none;">
-                <div class="skin-dropzone" id="skinDropzone">
-                    <div class="dropzone-content">
-                        <i class="fas fa-cloud-upload-alt dropzone-icon"></i>
-                        <div class="dropzone-text" id="dropzone-text"></div>
-                        <div class="dropzone-subtext"></div>
-                        <div class="dropzone-requirements"></div>
-                    </div>
-                    <div class="dropzone-hover-state">
-                        <i class="fas fa-check-circle"></i>
-                        <span></span>
-                    </div>
+
+    <div class="tabs-settings-content">
+        <div class="settings-content-scroll">
+            <div class="center-page">
+                <div class="title-settings" id="mods-title"></div>
+                <div class="mods-info">
+                    <div class="information" id="mods-info"></div>
+                    <div class="mods-list" id="mods-list"></div>
                 </div>
             </div>
         </div>
     </div>
-</div>
+
+    <div class="tabs-settings-content">
+        <div class="settings-content-scroll">
+            <div class="player-skin-title title-settings" id="skin-title"></div>
+            <div class="center-page">
+                <div class="skin-section-layout">
+                    <div class="skin-preview-container">
+                        <iframe frameborder="0" id="skinRender2" class="skin-renderer-settings"
+                            style="border: none; width: 319px; height: 221px;" src=""></iframe>
+
+                        <div class="ms-skin-viewer-wrap" id="msSkinViewerWrap" style="display: none;">
+                            <canvas id="skin3dCanvas" class="skin-3d-canvas" width="319" height="250"></canvas>
+                            <div class="skin-rotate-hint" id="skinRotateHint"></div>
+                            <div class="skin-model-pill" id="skinModelToggle" role="group">
+                                <button type="button" class="skin-model-btn active" id="skinModelClassicBtn"></button>
+                                <button type="button" class="skin-model-btn" id="skinModelSlimBtn"></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="skin-upload-container">
+                        <input type="file" id="fileInput" accept="image/png" style="display: none;">
+                        <div class="skin-dropzone" id="skinDropzone">
+                            <div class="dropzone-content">
+                                <i class="fas fa-cloud-upload-alt dropzone-icon"></i>
+                                <div class="dropzone-text" id="dropzone-text"></div>
+                                <div class="dropzone-subtext"></div>
+                                <div class="dropzone-requirements"></div>
+                            </div>
+                            <div class="dropzone-hover-state">
+                                <i class="fas fa-check-circle"></i>
+                                <span></span>
+                            </div>
+                        </div>
+                        <div class="skin-status-msg" id="skinStatusMsg"></div>
+                    </div>
+                </div>
+
+                <div class="capes-studio-section" id="capesSection" style="display: none;">
+                    <div class="capes-section-title" id="capesSectionTitle"></div>
+                    <div class="capes-strip" id="capesStrip"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>

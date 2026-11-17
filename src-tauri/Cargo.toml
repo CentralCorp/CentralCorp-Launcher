@@ -1,0 +1,42 @@
+[package]
+name = "centralcorp-launcher"
+version = "5.0.0"
+description = "CentralCorp Desktop Minecraft Launcher (Tauri v2 + Rust)"
+authors = ["CentralCorp", "Riptiaz", "Boulldogo", "Vexato", "Luuxis"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "centralcorp_launcher_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+minecraft-rust-core = { path = "../../../Riptiaz/minecraft-java-core" }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+dirs = "5.0"
+discord-rich-presence = "0.2"
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "stream",
+    "multipart",
+    "rustls-tls",
+    "gzip",
+] }
+roxmltree = "0.20"
+semver = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sysinfo = "0.32"
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+url = { version = "2.5", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3.13"

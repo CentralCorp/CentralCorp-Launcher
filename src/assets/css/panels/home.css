@@ -59,6 +59,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 14px;
 }
 
 .sidebar-bottom {
@@ -765,4 +766,267 @@ body::-webkit-scrollbar {
 
 .opacity-1 {
     opacity: 1;
+}
+
+/* Ergonomic Multi-Instance Selector & Floating Glassmorphic Popover */
+.instance-selector-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.instance-selector-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    background: var(--bg-hover);
+    border: 1.5px solid var(--border-accent);
+    box-shadow: 0 4px 15px var(--accent-color-subtle);
+    color: var(--text-primary);
+    cursor: pointer;
+    padding: 0;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-smooth);
+}
+
+.instance-selector-btn:hover,
+.instance-selector-btn.open {
+    border-color: var(--accent-color);
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: var(--shadow-glow);
+    transform: scale(1.06);
+}
+
+.instance-selector-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    pointer-events: none;
+}
+
+.instance-selector-svg {
+    width: 20px;
+    height: 20px;
+    color: var(--accent-color);
+    pointer-events: none;
+}
+
+.instance-selector-corner {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    border: 2px solid rgba(10, 10, 12, 0.95);
+    box-shadow: 0 0 8px var(--accent-color-glow);
+    pointer-events: none;
+}
+
+.instance-selector-btn.locked-instance .instance-selector-corner {
+    background: #e63946;
+    box-shadow: 0 0 8px rgba(230, 57, 70, 0.6);
+}
+
+.instance-popover {
+    position: absolute;
+    left: 72px;
+    top: 50%;
+    transform: translateY(-50%) translateX(-10px);
+    background: var(--bg-primary);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--border-accent);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    padding: 12px;
+    width: 290px;
+    max-height: 340px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: var(--transition-fast);
+    z-index: 120;
+    box-sizing: border-box;
+}
+
+.instance-popover.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: all;
+    transform: translateY(-50%) translateX(0);
+}
+
+.instance-popover::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 8px solid transparent;
+    border-right-color: var(--border-accent);
+}
+
+.instance-popover-header {
+    font: 600 11px/1.3 'Poppins', sans-serif;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    padding: 0 4px 8px 4px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.instance-popover-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    max-height: 275px;
+    padding-right: 2px;
+}
+
+.instance-popover-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.instance-popover-list::-webkit-scrollbar-thumb {
+    background: var(--accent-color-glow);
+    border-radius: 4px;
+}
+
+.instance-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-subtle);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    text-align: left;
+}
+
+.instance-card:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-accent);
+}
+
+.instance-card.active {
+    background: var(--accent-color-subtle);
+    border-color: var(--accent-color);
+    box-shadow: 0 0 16px rgba(0, 0, 0, 0.25);
+}
+
+.instance-card-icon-wrap {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.instance-card-icon-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.instance-card-icon-wrap svg {
+    width: 18px;
+    height: 18px;
+    color: var(--accent-color);
+}
+
+.instance-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.instance-card-title {
+    font: 600 13px/1.25 'Poppins', sans-serif;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.instance-card-badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.instance-meta-pill {
+    font: 500 10px/1.1 'Poppins', sans-serif;
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-secondary);
+}
+
+.instance-meta-pill.loader {
+    color: var(--accent-color);
+    background: var(--accent-color-subtle);
+    text-transform: capitalize;
+}
+
+.instance-meta-pill.locked {
+    color: #ff7b85;
+    background: rgba(230, 57, 70, 0.18);
+    border: 1px solid rgba(230, 57, 70, 0.35);
+}
+
+.instance-card-check {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    box-shadow: 0 0 10px var(--accent-color-glow);
+    flex-shrink: 0;
+    opacity: 0;
+    transition: var(--transition-fast);
+}
+
+.instance-card.active .instance-card-check {
+    opacity: 1;
+}
+
+.news-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font: 600 10px/1.2 'Poppins', sans-serif;
+    background: var(--accent-color-subtle);
+    border: 1px solid var(--border-accent);
+    color: var(--accent-color);
+    vertical-align: middle;
+}
+
+.news-list a[href] {
+    color: var(--accent-color);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.news-list a[href]:hover {
+    filter: brightness(1.15);
 }

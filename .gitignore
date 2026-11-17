@@ -5,3 +5,5 @@ test
 dist
 node-v*
 AppData
+src-tauri/target
+src-tauri/gen

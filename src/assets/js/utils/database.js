@@ -7,7 +7,7 @@
  */
 class database {
     async init() {
-        this.db = await new Promise((resolve) => {
+        this.db = await new Promise((resolve, reject) => {
             let request = indexedDB.open('database', 1);
 
             request.onupgradeneeded = (event) => {
@@ -44,18 +44,26 @@ class database {
                 if (!db.objectStoreNames.contains('screen')) {
                     db.createObjectStore('screen', { keyPath: "key" });
                 }
-            }
+            };
 
             request.onsuccess = (event) => {
                 resolve(event.target.result);
-            }
+            };
+
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
         });
         return this;
     }
 
     add(data, type) {
         let store = this.getStore(type);
-        return store.add({ key: this.genKey(data.uuid), value: data });
+        return new Promise((resolve) => {
+            let req = store.put({ key: this.genKey(data.uuid), value: data });
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => resolve(null);
+        });
     }
 
     get(keys, type) {
@@ -65,7 +73,8 @@ class database {
             let get = store.get(Key);
             get.onsuccess = (event) => {
                 resolve(event.target.result);
-            }
+            };
+            get.onerror = () => resolve(undefined);
         });
     }
 
@@ -74,27 +83,44 @@ class database {
         return new Promise((resolve) => {
             let getAll = store.getAll();
             getAll.onsuccess = (event) => {
-                resolve(event.target.result);
-            }
+                resolve(event.target.result || []);
+            };
+            getAll.onerror = () => resolve([]);
         });
     }
 
     update(data, type) {
         let self = this;
-        return new Promise(async (resolve) => {
+        return new Promise((resolve) => {
             let store = self.getStore(type);
-            let keyCursor = store.openCursor(self.genKey(data.uuid));
-            keyCursor.onsuccess = async (event) => {
+            let key = self.genKey(data.uuid);
+            let keyCursor = store.openCursor(key);
+            keyCursor.onsuccess = (event) => {
                 let cursor = event.target.result;
-                for (let [key, value] of Object.entries({ value: data })) cursor.value[key] = value;
-                resolve(cursor.update(cursor.value));
-            }
+                if (!cursor) {
+                    let putReq = store.put({ key, value: data });
+                    putReq.onsuccess = () => resolve(putReq.result);
+                    putReq.onerror = () => resolve(null);
+                    return;
+                }
+                for (let [k, value] of Object.entries({ value: data })) {
+                    cursor.value[k] = value;
+                }
+                let updReq = cursor.update(cursor.value);
+                updReq.onsuccess = () => resolve(updReq.result);
+                updReq.onerror = () => resolve(null);
+            };
+            keyCursor.onerror = () => resolve(null);
         });
     }
 
     delete(key, type) {
         let store = this.getStore(type);
-        return store.delete(this.genKey(key));
+        return new Promise((resolve) => {
+            let req = store.delete(this.genKey(key));
+            req.onsuccess = () => resolve(true);
+            req.onerror = () => resolve(false);
+        });
     }
 
     getStore(type) {
@@ -103,7 +129,7 @@ class database {
 
     genKey(int) {
         var key = 0;
-        for (let c of int.split("")) key = (((key << 5) - key) + c.charCodeAt()) & 0xFFFFFFFF;
+        for (let c of String(int).split("")) key = (((key << 5) - key) + c.charCodeAt()) & 0xFFFFFFFF;
         return key;
     }
 }

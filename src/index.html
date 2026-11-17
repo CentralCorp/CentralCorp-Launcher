@@ -1,13 +1,14 @@
+<!DOCTYPE html>
 <html>
     <head>
         <meta charset="UTF-8">
         <link rel="stylesheet" href="assets/css/index.css">
     </head>
-    <body>
-        <div id="splash" style="display:none">
-            <img class="splash" src="assets/images/icon.png" />
-            <p class="splash-message" id="splash-message"></p>
-            <p class="splash-author"><span class="author" id="splash-author"></span></p>
+    <body data-tauri-drag-region>
+        <div id="splash" data-tauri-drag-region style="display:none">
+            <img class="splash" data-tauri-drag-region src="assets/images/icon.png" alt="" />
+            <p class="splash-message" data-tauri-drag-region id="splash-message"></p>
+            <p class="splash-author" data-tauri-drag-region><span class="author" id="splash-author"></span></p>
             <p class="message" id="update-message"></p>
             <progress value="0" max="0"></progress>
         </div>

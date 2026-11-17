@@ -12,6 +12,21 @@
             <div class="player-role"></div>
         </div>
         <div class="sidebar-middle">
+            <div class="instance-selector-wrapper" id="instance-selector-wrapper">
+                <button class="instance-selector-btn" id="instance-selector-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
+                    <img class="instance-selector-icon" id="instance-selector-icon" alt="" style="display: none;" />
+                    <svg class="instance-selector-svg" id="instance-selector-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                    <span class="instance-selector-corner" aria-hidden="true"></span>
+                </button>
+                <div class="instance-popover" id="instance-popover" role="listbox">
+                    <div class="instance-popover-header" id="instance-popover-header"></div>
+                    <div class="instance-popover-list" id="instance-popover-list"></div>
+                </div>
+            </div>
             <div class="play-element">
                 <button class="play-btn" id="play-btn"></button>
                 <div class="download-content">

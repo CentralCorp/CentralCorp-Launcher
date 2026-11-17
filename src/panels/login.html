@@ -1,30 +1,46 @@
 <div class="login-content">
     <div class="login-card-main">
         <div class="login-header">
-            <i class="fas fa-user-circle login-icon"></i>
+            <i class="fas fa-user-circle login-icon" id="login-header-icon"></i>
+            <img src="./assets/images/logo/microsoft.svg" alt="Microsoft" class="login-ms-hero-logo" id="login-ms-hero-logo" style="display: none;" />
             <p class="login-title" id="login-title"></p>
         </div>
 
         <small class="info-login" id="info-login"></small>
 
         <div class="login-form">
-            <div class="login-input-group">
-                <label id="username-label"></label>
-                <input type="text" class="Mail login-input" spellcheck="false" autocomplete="username">
+            <div class="azuriom-auth-section" id="azuriom-auth-section">
+                <div class="login-input-group">
+                    <label id="username-label"></label>
+                    <input type="text" class="Mail login-input" spellcheck="false" autocomplete="username">
+                </div>
+
+                <div class="login-input-group">
+                    <label id="password-label"></label>
+                    <input type="password" class="Password login-input" spellcheck="false" autocomplete="current-password">
+                </div>
+
+                <div class="login-links">
+                    <a class="password-reset" id="password-reset-link"></a>
+                    <a class="new-user" id="new-user-link"></a>
+                </div>
+
+                <button type="button" class="login-btn primary-btn" id="login-btn"></button>
             </div>
 
-            <div class="login-input-group">
-                <label id="password-label"></label>
-                <input type="password" class="Password login-input" spellcheck="false" autocomplete="current-password">
+            <div class="auth-divider" id="auth-divider" style="display: none;">
+                <span id="auth-divider-text"></span>
             </div>
 
-            <div class="login-links">
-                <a class="password-reset" id="password-reset-link" target="_blank"></a>
-                <a class="new-user" id="new-user-link" target="_blank"></a>
+            <div class="microsoft-auth-section" id="microsoft-auth-section" style="display: none;">
+                <p class="microsoft-auth-desc" id="microsoft-auth-desc" style="display: none;"></p>
+                <button type="button" class="microsoft-login-btn" id="microsoft-login-btn">
+                    <img src="./assets/images/logo/microsoft.svg" alt="Microsoft" class="microsoft-btn-logo" />
+                    <span id="microsoft-login-text"></span>
+                </button>
             </div>
 
-            <button class="login-btn primary-btn" id="login-btn"></button>
-            <button class="cancel cancel-login" id="cancel-login-btn" style="display: none;"></button>
+            <button type="button" class="cancel cancel-login" id="cancel-login-btn" style="display: none;"></button>
         </div>
     </div>
 
@@ -37,8 +53,8 @@
         <div class="login-input-group">
             <input type="text" class="a2f login-input" spellcheck="false" placeholder="000000">
         </div>
-        <button class="login-btn-2f primary-btn" id="a2f-login-btn"></button>
-        <button class="cancel cancel-2f" id="cancel-a2f-btn"></button>
+        <button type="button" class="login-btn-2f primary-btn" id="a2f-login-btn"></button>
+        <button type="button" class="cancel cancel-2f" id="cancel-a2f-btn"></button>
     </div>
 
     <div class="email-verify-card" style="display: none;">
@@ -47,6 +63,6 @@
             <p class="login-title" id="email-verify-label"></p>
         </div>
         <div class="info-login-email" id="info-login-email"></div>
-        <button class="cancel cancel-email" id="cancel-email-btn"></button>
+        <button type="button" class="cancel cancel-email" id="cancel-email-btn"></button>
     </div>
 </div>

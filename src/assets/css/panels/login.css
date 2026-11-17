@@ -344,3 +344,106 @@
     pointer-events: none;
     z-index: -1;
 }
+
+.azuriom-auth-section {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.login-ms-hero-logo {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 16px auto;
+    border-radius: 10px;
+    filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+}
+
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 4px 0;
+    color: rgba(255, 255, 255, 0.45);
+    font: 600 11px/1 'Poppins', sans-serif;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.microsoft-auth-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 10px;
+}
+
+.microsoft-auth-desc {
+    margin: 0 0 6px 0;
+    font: 400 13px/1.5 'Poppins', sans-serif;
+    color: rgba(255, 255, 255, 0.72);
+}
+
+.microsoft-login-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    padding: 15px 22px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.07);
+    color: #ffffff;
+    font: 600 15px/1.2 'Poppins', sans-serif;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+.microsoft-login-btn.primary-ms {
+    background: linear-gradient(180deg,
+            var(--accent-color, #00bd7a) 0%,
+            var(--accent-color-dark, #00a066) 100%);
+    color: #0a0a0a;
+    font-weight: 700;
+    border-color: transparent;
+    box-shadow:
+        0 6px 20px var(--accent-color-glow, rgba(0, 189, 122, 0.35)),
+        0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+
+.microsoft-login-btn:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-color, #00bd7a);
+    background: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+
+.microsoft-login-btn.primary-ms:hover {
+    background: linear-gradient(180deg,
+            var(--accent-color, #00bd7a) 0%,
+            var(--accent-color-dark, #00a066) 100%);
+    filter: brightness(1.08);
+    box-shadow: 0 10px 30px var(--accent-color-glow, rgba(0, 189, 122, 0.45));
+}
+
+.microsoft-login-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.microsoft-btn-logo {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}

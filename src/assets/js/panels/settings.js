@@ -7,38 +7,146 @@
  */
 'use strict';
 
-import { database, changePanel, accountSelect, Slider, showLoadingOverlay, hideLoadingOverlay, t } from '../utils.js';
-const dataDirectory = process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME);
+import {
+    config as configUtil,
+    database,
+    changePanel,
+    addAccount,
+    accountSelect,
+    headplayer,
+    normalizeAccount,
+    getActiveInstance,
+    Slider,
+    showLoadingOverlay,
+    hideLoadingOverlay,
+    t,
+} from '../utils.js';
+import {
+    getLauncherMeta,
+    resolveGameRoot,
+    getSystemMemory,
+    authAzuriomLogout,
+    listOptionalMods,
+    toggleOptionalMod,
+    uploadPlayerSkin,
+    setMicrosoftCape,
+} from '../utils/tauri-bridge.js';
+import {
+    MinecraftSkinViewer3D,
+    getActiveMicrosoftSkin,
+    getActiveMicrosoftCape,
+    renderMinecraftCapePreviewDataUrl,
+} from '../utils/skin-renderer.js';
 
-const os = require('os');
-const fetch = require('node-fetch');
-const path = require('path');
-const fs = require('fs');
-const pkg = require('../package.json');
-const { ipcRenderer, shell } = require('electron');
-const settings_url = pkg.user ? `${pkg.settings}/${pkg.user}` : pkg.settings;
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const res = String(reader.result || '');
+            const idx = res.indexOf(',');
+            resolve(idx !== -1 ? res.slice(idx + 1) : res);
+        };
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = String(text ?? '');
+    return div.innerHTML;
+}
 
 class Settings {
-    static id = "settings";
+    static id = 'settings';
 
     async init(config) {
         this.config = config;
+        this.meta = await getLauncherMeta();
         this.database = await new database().init();
-        this.initSettingsDefault();
+        this.skinViewer3D = null;
+        this.selectedSlimModel = false;
+
+        await this.initSettingsDefault();
         this.initTab();
         this.initAccount();
-        this.initRam();
-        this.initLauncherSettings();
-        this.updateModsConfig();
-        this.initOptionalMods();
-        this.headplayer();
+        await this.initRam();
+        await this.initLauncherSettings();
+        await this.initOptionalMods();
+        this.initSkinStudioControls();
         this.initSkinDropzone();
+
+        window.addEventListener('instance-changed', () => {
+            this.initOptionalMods();
+        });
+
+        window.addEventListener('account-changed', () => {
+            this.initPreviewSkin();
+        });
+    }
+
+    async getSelectedAccount() {
+        const selectedUuid = (await this.database.get('1234', 'accounts-selected'))?.value?.selected;
+        if (!selectedUuid) return null;
+        const rec = await this.database.get(selectedUuid, 'accounts');
+        return rec?.value ? normalizeAccount(rec.value) : null;
+    }
+
+    // -----------------------------------------------------------------------
+    // 3D Skin + Cape Studio (Microsoft Interactive 3D + Azuriom skin3d iframe)
+    // -----------------------------------------------------------------------
+
+    initSkinStudioControls() {
+        const classicBtn = document.getElementById('skinModelClassicBtn');
+        const slimBtn = document.getElementById('skinModelSlimBtn');
+        const rotateHint = document.getElementById('skinRotateHint');
+        const capesTitle = document.getElementById('capesSectionTitle');
+
+        if (classicBtn) classicBtn.textContent = t('skin_model_classic');
+        if (slimBtn) slimBtn.textContent = t('skin_model_slim');
+        if (rotateHint) rotateHint.textContent = t('skin_drag_rotate');
+        if (capesTitle) {
+            capesTitle.innerHTML = `<i class="fas fa-award"></i><span>${t('official_capes')}</span>`;
+        }
+
+        if (classicBtn && slimBtn) {
+            classicBtn.addEventListener('click', () => this.selectSkinModel(false));
+            slimBtn.addEventListener('click', () => this.selectSkinModel(true));
+        }
+
+        const canvas = document.getElementById('skin3dCanvas');
+        if (canvas && !this.skinViewer3D) {
+            this.skinViewer3D = new MinecraftSkinViewer3D(canvas);
+        }
+    }
+
+    selectSkinModel(slim) {
+        this.selectedSlimModel = Boolean(slim);
+        const classicBtn = document.getElementById('skinModelClassicBtn');
+        const slimBtn = document.getElementById('skinModelSlimBtn');
+        if (classicBtn) classicBtn.classList.toggle('active', !this.selectedSlimModel);
+        if (slimBtn) slimBtn.classList.toggle('active', this.selectedSlimModel);
+        if (this.skinViewer3D) {
+            this.skinViewer3D.setSlim(this.selectedSlimModel);
+        }
+    }
+
+    showSkinStatus(text, isError = false) {
+        const el = document.getElementById('skinStatusMsg');
+        if (!el) return;
+        el.style.color = isError ? '#ef4444' : 'var(--accent-color, #00bd7a)';
+        el.textContent = text;
+        if (text) {
+            clearTimeout(this._skinMsgTimer);
+            this._skinMsgTimer = setTimeout(() => {
+                el.textContent = '';
+            }, 3500);
+        }
     }
 
     initSkinDropzone() {
         const dropzone = document.getElementById('skinDropzone');
         const fileInput = document.getElementById('fileInput');
-
         if (!dropzone || !fileInput) return;
 
         dropzone.addEventListener('click', () => {
@@ -49,6 +157,7 @@ class Settings {
             const file = e.target.files[0];
             if (file) {
                 await this.handleSkinFile(file);
+                fileInput.value = '';
             }
         });
 
@@ -86,286 +195,420 @@ class Settings {
         if (!file) return;
 
         if (file.type !== 'image/png') {
-            alert(t('error_png_required'));
+            this.showSkinStatus(t('error_png_required'), true);
             return;
         }
 
+        const objectUrl = URL.createObjectURL(file);
         const img = new Image();
-        img.src = URL.createObjectURL(file);
         img.onload = async () => {
-            if (img.width !== 64 || img.height !== 64) {
-                alert(t('error_skin_size'));
+            URL.revokeObjectURL(objectUrl);
+            const validSize = img.width === 64 && (img.height === 64 || img.height === 32);
+            if (!validSize) {
+                this.showSkinStatus(t('error_skin_size'), true);
                 return;
             }
 
             const dropzone = document.getElementById('skinDropzone');
             dropzone.classList.add('upload-success');
-
             await this.processSkinChange(file);
-
             setTimeout(() => {
                 dropzone.classList.remove('upload-success');
             }, 2000);
         };
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            this.showSkinStatus(t('error_png_required'), true);
+        };
+        img.src = objectUrl;
     }
 
-    async refreshData() {
-        document.querySelector('.player-role').innerHTML = '';
-        document.querySelector('.player-monnaie').innerHTML = '';
-        await this.initOthers();
-        await this.initPreviewSkin();
-        await this.updateAccountImage();
-        hideLoadingOverlay();
+    async processSkinChange(file) {
+        const account = await this.getSelectedAccount();
+        if (!account) return;
+
+        try {
+            const pngBase64 = await fileToBase64(file);
+            const azauth = await configUtil.getAzAuthUrl(this.config);
+            const updatedRaw = await uploadPlayerSkin(
+                account,
+                azauth || null,
+                pngBase64,
+                this.selectedSlimModel
+            );
+            const updated = normalizeAccount(updatedRaw);
+            await this.database.update(updated, 'accounts');
+            await addAccount(updated);
+            await headplayer(updated);
+            await this.initPreviewSkin();
+            this.showSkinStatus(t('skin_updated'), false);
+        } catch (err) {
+            console.error('Skin upload failed:', err);
+            this.showSkinStatus(String(err?.message || err || t('error_occurred')), true);
+        }
     }
 
-    async headplayer() {
-        const uuid = (await this.database.get('1234', 'accounts-selected')).value;
-        const account = (await this.database.get(uuid.selected, 'accounts')).value;
-        const pseudo = account.name;
-        const azauth = this.getAzAuthUrl();
-        const timestamp = new Date().getTime();
-        const skin_url = `${azauth}api/skin-api/avatars/face/${pseudo}/?t=${timestamp}`;
-        document.querySelector(".player-head").style.backgroundImage = `url(${skin_url})`;
-    }
+    async initPreviewSkin() {
+        const account = await this.getSelectedAccount();
+        if (!account) return;
 
-    async updateAccountImage() {
-        const uuid = (await this.database.get('1234', 'accounts-selected')).value;
-        const account = (await this.database.get(uuid.selected, 'accounts')).value;
-        const azauth = this.getAzAuthUrl();
-        const timestamp = new Date().getTime();
+        const title = document.querySelector('.player-skin-title');
+        const skinTabBtn = document.getElementById('skin-tab');
+        const iframe = document.getElementById('skinRender2');
+        const msWrap = document.getElementById('msSkinViewerWrap');
+        const capesSection = document.getElementById('capesSection');
 
-        const accountDiv = document.getElementById(account.uuid);
-        if (accountDiv) {
-            const accountImage = accountDiv.querySelector('.account-image');
-            if (accountImage) {
-                accountImage.src = `${azauth}api/skin-api/avatars/face/${account.name}/?t=${timestamp}`;
-            } else {
-                console.error('Image not found in the selected account div.');
+        if (title) {
+            title.textContent = `${t('skin_of')} ${account.name}`;
+        }
+
+        const isMicrosoft = account.meta?.type === 'Microsoft';
+        if (skinTabBtn) {
+            skinTabBtn.innerHTML = `<i class="fas fa-tshirt"></i><span>${isMicrosoft ? t('skin_and_capes') : t('skin')}</span>`;
+        }
+
+        if (isMicrosoft) {
+            if (iframe) {
+                iframe.style.display = 'none';
+                iframe.src = '';
             }
+            if (msWrap) msWrap.style.display = 'flex';
+            if (capesSection) capesSection.style.display = 'block';
+
+            const activeSkin = getActiveMicrosoftSkin(account);
+            const activeCape = getActiveMicrosoftCape(account);
+            this.selectSkinModel(Boolean(activeSkin?.slim));
+
+            if (this.skinViewer3D) {
+                await this.skinViewer3D.setSkin(activeSkin?.url || null, Boolean(activeSkin?.slim));
+                await this.skinViewer3D.setCape(activeCape?.url || null);
+                this.updateViewerAnimationState();
+            }
+
+            await this.renderCapesStrip(account);
         } else {
-            console.error(`No div found with UUID: ${account.uuid}`);
-        }
-    }
-
-    async initOthers() {
-        const uuid = (await this.database.get('1234', 'accounts-selected')).value;
-        const account = (await this.database.get(uuid.selected, 'accounts')).value;
-
-        this.updateRole(account);
-        this.updateMoney(account);
-        this.updateWhitelist(account);
-        await this.updateBackground(account);
-    }
-
-    updateRole(account) {
-        if (this.config.role && account.user_info.role) {
-            const blockRole = document.createElement("div");
-            blockRole.innerHTML = `<div>${t('grade')}: ${account.user_info.role.name}</div>`;
-            document.querySelector('.player-role').appendChild(blockRole);
-        } else {
-            document.querySelector(".player-role").style.display = "none";
-        }
-    }
-
-    updateMoney(account) {
-        if (this.config.money) {
-            const blockMonnaie = document.createElement("div");
-            blockMonnaie.innerHTML = `<div>${account.user_info.monnaie} pts</div>`;
-            document.querySelector('.player-monnaie').appendChild(blockMonnaie);
-        } else {
-            document.querySelector(".player-monnaie").style.display = "none";
-        }
-    }
-
-    updateWhitelist(account) {
-        const playBtn = document.querySelector(".play-btn");
-
-        if (this.config.whitelist_activate &&
-            (!this.config.whitelist.includes(account.name) &&
-                !this.config.whitelist_roles.includes(account.user_info.role.name))) {
-            playBtn.style.background = "#696969";
-            playBtn.style.pointerEvents = "none";
-            playBtn.style.boxShadow = "none";
-            playBtn.textContent = t('unavailable');
-        } else {
-            playBtn.style.background = "";
-            playBtn.style.pointerEvents = "auto";
-            playBtn.style.boxShadow = "";
-            playBtn.style.opacity = "1";
-            playBtn.textContent = t('play');
-        }
-    }
-
-    updateBackground(account) {
-        return new Promise((resolve) => {
-            const defaultBg = '../src/assets/images/background/light.jpg';
-            let backgroundUrl = null;
-
-            if (this.config.role_data && account.user_info && account.user_info.role) {
-                for (const roleKey in this.config.role_data) {
-                    if (this.config.role_data.hasOwnProperty(roleKey)) {
-                        const role = this.config.role_data[roleKey];
-                        if (account.user_info.role.name === role.name && role.background) {
-                            const urlPattern = /^(https?:\/\/)/;
-                            if (urlPattern.test(role.background)) {
-                                backgroundUrl = role.background;
-                            }
-                            break;
-                        }
-                    }
+            if (this.skinViewer3D) this.skinViewer3D.stop();
+            if (msWrap) msWrap.style.display = 'none';
+            if (capesSection) capesSection.style.display = 'none';
+            if (iframe) {
+                iframe.style.display = 'block';
+                const azauth = await configUtil.getAzAuthUrl(this.config);
+                if (azauth) {
+                    iframe.src = `${azauth}skin3d/3d-api/skin-api/${encodeURIComponent(account.name)}?t=${Date.now()}`;
                 }
             }
-
-            const finalBgUrl = backgroundUrl || defaultBg;
-
-            const img = new Image();
-            img.onload = () => {
-                document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${finalBgUrl}) black no-repeat center center scroll`;
-                document.body.style.backgroundSize = 'cover';
-                resolve();
-            };
-
-            img.onerror = () => {
-                document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url(${defaultBg}) black no-repeat center center scroll`;
-                document.body.style.backgroundSize = 'cover';
-                resolve();
-            };
-
-            img.src = finalBgUrl;
-        });
+        }
     }
+
+    async renderCapesStrip(account) {
+        const strip = document.getElementById('capesStrip');
+        if (!strip) return;
+        strip.innerHTML = '';
+
+        const capes = Array.isArray(account?.profile?.capes) ? account.profile.capes : [];
+        const activeCape = getActiveMicrosoftCape(account);
+
+        // 1. "No cape" card
+        const noneCard = document.createElement('div');
+        noneCard.className = `cape-card${!activeCape ? ' active' : ''}`;
+        noneCard.innerHTML = `
+            <div class="cape-card-preview"><i class="fas fa-ban"></i></div>
+            <div class="cape-card-label">${escapeHtml(t('no_cape'))}</div>
+        `;
+        noneCard.addEventListener('click', () => this.applyMicrosoftCape(account, null));
+        strip.appendChild(noneCard);
+
+        // 2. Owned official capes
+        for (const cape of capes) {
+            const isEquipped = activeCape && activeCape.id === cape.id;
+            const card = document.createElement('div');
+            card.className = `cape-card${isEquipped ? ' active' : ''}`;
+            card.title = cape.alias || 'Cape';
+            card.innerHTML = `
+                <img class="cape-card-preview" alt="${escapeHtml(cape.alias || 'Cape')}" />
+                <div class="cape-card-label">${escapeHtml(cape.alias || 'Cape')}</div>
+            `;
+
+            const previewImg = card.querySelector('img');
+            if (cape.url) {
+                renderMinecraftCapePreviewDataUrl(cape.url)
+                    .then((dataUrl) => {
+                        previewImg.src = dataUrl;
+                    })
+                    .catch(() => {
+                        previewImg.src = cape.url;
+                    });
+            }
+
+            card.addEventListener('click', () => this.applyMicrosoftCape(account, cape.id));
+            strip.appendChild(card);
+        }
+    }
+
+    async applyMicrosoftCape(account, capeIdOrNull) {
+        try {
+            const updatedProfile = await setMicrosoftCape(account.access_token, capeIdOrNull);
+            const updatedAccount = normalizeAccount({
+                ...account,
+                profile: updatedProfile,
+            });
+            await this.database.update(updatedAccount, 'accounts');
+
+            const activeCape = getActiveMicrosoftCape(updatedAccount);
+            if (this.skinViewer3D) {
+                await this.skinViewer3D.setCape(activeCape?.url || null);
+            }
+            await this.renderCapesStrip(updatedAccount);
+            this.showSkinStatus(t('cape_updated'), false);
+        } catch (err) {
+            console.error('Failed to change cape:', err);
+            this.showSkinStatus(String(err?.message || err || t('error_occurred')), true);
+        }
+    }
+
+    updateViewerAnimationState() {
+        if (!this.skinViewer3D) return;
+        const skinTabBtn = document.getElementById('skin-tab');
+        const isSkinTabActive = skinTabBtn && skinTabBtn.classList.contains('active-tab-btn');
+        if (isSkinTabActive) {
+            this.skinViewer3D.start();
+        } else {
+            this.skinViewer3D.stop();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Accounts Management (Dual-Auth AZauth + Microsoft)
+    // -----------------------------------------------------------------------
 
     initAccount() {
         document.querySelector('.accounts').addEventListener('click', async (e) => {
-            const path = e.composedPath();
-            const uuid = e.target.id;
-            const selectedaccount = await this.database.get('1234', 'accounts-selected');
+            const deleteBtn = e.target.closest('.account-delete');
+            const accountCard = e.target.closest('.account');
+            if (!accountCard) return;
 
-            if (path[0].classList.contains('account')) {
-                showLoadingOverlay();
-                accountSelect(uuid);
-                await this.database.update({ uuid: "1234", selected: uuid }, 'accounts-selected');
-                await this.refreshData();
-            }
+            const targetUuid = accountCard.id;
+            const selectedRec = await this.database.get('1234', 'accounts-selected');
+            const currentSelectedUuid = selectedRec?.value?.selected;
 
-            if (e.target.classList.contains("account-delete")) {
-                const accountElement = path[1];
-                this.database.delete(accountElement.id, 'accounts');
-                document.querySelector('.accounts').removeChild(accountElement);
+            if (deleteBtn) {
+                e.stopPropagation();
+                const storedRec = await this.database.get(targetUuid, 'accounts');
+                const storedAcc = storedRec?.value ? normalizeAccount(storedRec.value) : null;
 
-                if (!document.querySelector('.accounts').children.length) {
-                    changePanel("login");
+                // Best-effort Azuriom token revocation on logout
+                if (storedAcc && storedAcc.meta?.type === 'AZauth' && storedAcc.access_token) {
+                    const azauth = await configUtil.getAzAuthUrl(this.config);
+                    if (azauth) {
+                        authAzuriomLogout(azauth, storedAcc.access_token).catch(() => {});
+                    }
+                }
+
+                await this.database.delete(targetUuid, 'accounts');
+                accountCard.remove();
+
+                const remaining = await this.database.getAll('accounts');
+                if (!remaining.length) {
+                    await this.database.update({ uuid: '1234' }, 'accounts-selected');
+                    const cancelLogin = document.querySelector('.cancel-login');
+                    if (cancelLogin) cancelLogin.style.display = 'none';
+                    changePanel('login');
                     return;
                 }
 
-                if (accountElement.id === selectedaccount?.value?.selected) {
-                    const allAccounts = await this.database.getAll('accounts');
-                    if (Array.isArray(allAccounts) && allAccounts.length > 0) {
-                        const newUuid = allAccounts[0]?.value?.uuid;
-                        if (newUuid) {
-                            this.database.update({ uuid: "1234", selected: newUuid }, 'accounts-selected');
-                            accountSelect(newUuid);
-                        }
-                    } else {
-                        changePanel("login");
+                if (targetUuid === currentSelectedUuid) {
+                    const nextAcc = normalizeAccount(remaining[0]?.value);
+                    if (nextAcc?.uuid) {
+                        await this.database.update({ uuid: '1234', selected: nextAcc.uuid }, 'accounts-selected');
+                        await accountSelect(nextAcc.uuid, nextAcc);
+                        window.dispatchEvent(new CustomEvent('account-changed', { detail: { account: nextAcc } }));
+                        await this.initPreviewSkin();
                     }
+                }
+                return;
+            }
+
+            if (targetUuid !== currentSelectedUuid) {
+                showLoadingOverlay();
+                try {
+                    const accRec = await this.database.get(targetUuid, 'accounts');
+                    const acc = normalizeAccount(accRec?.value);
+                    await this.database.update({ uuid: '1234', selected: targetUuid }, 'accounts-selected');
+                    await accountSelect(targetUuid, acc);
+                    window.dispatchEvent(new CustomEvent('account-changed', { detail: { account: acc } }));
+                    await this.initPreviewSkin();
+                } finally {
+                    hideLoadingOverlay();
                 }
             }
         });
 
-
         document.querySelector('.add-account').addEventListener('click', () => {
-            document.querySelector(".cancel-login").style.display = "contents";
-            changePanel("login");
+            const cancelBtn = document.querySelector('.cancel-login');
+            if (cancelBtn) cancelBtn.style.display = 'inline-block';
+            changePanel('login');
         });
     }
+
+    // -----------------------------------------------------------------------
+    // System Memory & RAM Slider
+    // -----------------------------------------------------------------------
 
     async initRam() {
         const ramDatabase = (await this.database.get('1234', 'ram'))?.value;
-        const totalMem = Math.trunc(os.totalmem() / 1073741824 * 10) / 10;
-        const freeMem = Math.trunc(os.freemem() / 1073741824 * 10) / 10;
+        let totalMem = 8;
+        let freeMem = 4;
 
-        document.getElementById("total-ram").textContent = `${totalMem} Go RAM`;
-        document.getElementById("free-ram").textContent = `${freeMem} Go RAM disponible`;
+        try {
+            const mem = await getSystemMemory();
+            if (mem && mem.total_gb > 0) {
+                totalMem = mem.total_gb;
+                freeMem = mem.free_gb;
+            }
+        } catch (err) {
+            console.warn('Fallback RAM metrics:', err);
+        }
 
-        const sliderDiv = document.querySelector(".memory-slider");
-        sliderDiv.setAttribute("max", Math.trunc((80 * totalMem) / 100));
+        document.getElementById('total-ram').textContent = `${totalMem} Go RAM`;
+        document.getElementById('free-ram').textContent = `${freeMem} Go ${t('free_ram')}`;
 
-        const ram = ramDatabase ? ramDatabase : { ramMin: this.config.ram_min, ramMax: this.config.ram_max };
-        const slider = new Slider(".memory-slider", parseFloat(ram.ramMin), parseFloat(ram.ramMax));
+        const maxAllowed = Math.max(2, Math.round(((80 * totalMem) / 100) * 2) / 2);
+        const sliderDiv = document.querySelector('.memory-slider');
+        sliderDiv.setAttribute('max', String(maxAllowed));
 
-        const minSpan = document.querySelector(".slider-touch-left span");
-        const maxSpan = document.querySelector(".slider-touch-right span");
+        const defaultMin = Math.min(maxAllowed - 0.5, Number(this.config.ram_min) || 2);
+        const defaultMax = Math.min(maxAllowed, Math.max(defaultMin + 0.5, Number(this.config.ram_max) || 4));
+        const ram = ramDatabase || { ramMin: defaultMin, ramMax: defaultMax };
 
-        minSpan.setAttribute("value", `${ram.ramMin} Go`);
-        maxSpan.setAttribute("value", `${ram.ramMax} Go`);
+        const clampedMin = Math.max(0.5, Math.min(maxAllowed - 0.5, parseFloat(ram.ramMin) || 2));
+        const clampedMax = Math.max(clampedMin + 0.5, Math.min(maxAllowed, parseFloat(ram.ramMax) || 4));
 
-        slider.on("change", (min, max) => {
-            minSpan.setAttribute("value", `${min} Go`);
-            maxSpan.setAttribute("value", `${max} Go`);
-            this.database.update({ uuid: "1234", ramMin: `${min}`, ramMax: `${max}` }, 'ram');
+        const slider = new Slider('.memory-slider', clampedMin, clampedMax);
+
+        const minSpan = document.querySelector('.slider-touch-left span');
+        const maxSpan = document.querySelector('.slider-touch-right span');
+
+        minSpan.setAttribute('value', `${clampedMin} Go`);
+        maxSpan.setAttribute('value', `${clampedMax} Go`);
+
+        slider.on('change', (min, max) => {
+            minSpan.setAttribute('value', `${min} Go`);
+            maxSpan.setAttribute('value', `${max} Go`);
+            this.database.update({ uuid: '1234', ramMin: `${min}`, ramMax: `${max}` }, 'ram');
         });
     }
 
-    async updateModsConfig() {
-        const modsDir = path.join(`${dataDirectory}/${process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`}`, 'mods');
-        const launcherConfigDir = path.join(`${dataDirectory}/${process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`}`, 'launcher_config');
-        const modsConfigFile = path.join(launcherConfigDir, 'mods_config.json');
+    // -----------------------------------------------------------------------
+    // Optional Mods (Instance-Scoped via Tauri Rust Commands)
+    // -----------------------------------------------------------------------
 
-        const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        const response = await fetch(pkg.env === 'azuriom' ? `${baseUrl}api/centralcorp/mods` : `${baseUrl}utils/mods`);
-        const apiMods = await response.json();
-        const apiModsSet = new Set(apiMods.optionalMods);
-
-        let localModsConfig;
-        try {
-            localModsConfig = JSON.parse(fs.readFileSync(modsConfigFile));
-        } catch (error) {
-            await this.createModsConfig(modsConfigFile);
-            localModsConfig = JSON.parse(fs.readFileSync(modsConfigFile));
+    getModsUrlForInstance(instance) {
+        if (instance?.mods_url) return instance.mods_url;
+        const base = this.meta.settings_url.endsWith('/')
+            ? this.meta.settings_url
+            : `${this.meta.settings_url}/`;
+        if (instance?.slug && instance.slug !== 'default') {
+            return this.meta.env === 'azuriom'
+                ? `${base}api/centralcorp/instances/${instance.slug}/mods`
+                : `${base}utils/instances/${instance.slug}/mods`;
         }
-
-        for (const localMod in localModsConfig) {
-            if (!apiModsSet.has(localMod)) {
-                if (!localModsConfig[localMod]) {
-                    const modFiles = fs.readdirSync(modsDir).filter(file => file.startsWith(localMod) && file.endsWith('.jar-disable'));
-                    if (modFiles.length > 0) {
-                        const modFile = modFiles[0];
-                        const modFilePath = path.join(modsDir, modFile);
-                        const newModFilePath = modFilePath.replace('.jar-disable', '.jar');
-                        fs.renameSync(modFilePath, newModFilePath);
-                    }
-                }
-                delete localModsConfig[localMod];
-            }
-        }
-
-        apiMods.optionalMods.forEach(apiMod => {
-            if (!(apiMod in localModsConfig)) {
-                localModsConfig[apiMod] = true;
-            }
-        });
-
-        fs.writeFileSync(modsConfigFile, JSON.stringify(localModsConfig, null, 2));
+        return this.meta.env === 'azuriom' ? `${base}api/centralcorp/mods` : `${base}utils/mods`;
     }
 
     async initOptionalMods() {
-        const modsDir = path.join(`${dataDirectory}/${process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`}`, 'mods');
-        const launcherConfigDir = path.join(`${dataDirectory}/${process.platform == 'darwin' ? this.config.dataDirectory : `.${this.config.dataDirectory}`}`, 'launcher_config');
-        const modsConfigFile = path.join(launcherConfigDir, 'mods_config.json');
         const modsListElement = document.getElementById('mods-list');
+        const modsTitleElement = document.getElementById('mods-title');
+        if (!modsListElement) return;
+        modsListElement.innerHTML = '';
 
-        if (!fs.existsSync(launcherConfigDir)) {
-            fs.mkdirSync(launcherConfigDir, { recursive: true });
+        const inst = await getActiveInstance(this.config, this.database);
+        const slug = inst?.slug || 'default';
+        if (modsTitleElement) {
+            const multiCount = Array.isArray(this.config?.instances) ? this.config.instances.length : 1;
+            modsTitleElement.textContent =
+                multiCount > 1 && inst?.name
+                    ? `${t('optional_mods')} — ${inst.name}`
+                    : t('optional_mods');
         }
 
-        if (!fs.existsSync(modsDir) || fs.readdirSync(modsDir).length === 0) {
-            this.displayEmptyModsMessage(modsListElement);
-            if (!fs.existsSync(modsConfigFile)) {
-                await this.createModsConfig(modsConfigFile);
+        const gameRoot = resolveGameRoot(this.meta, this.config.dataDirectory);
+        const modsUrl = this.getModsUrlForInstance(inst);
+
+        try {
+            const mods = await listOptionalMods(gameRoot, slug, modsUrl);
+            if (!Array.isArray(mods) || mods.length === 0) {
+                const emptyDiv = document.createElement('div');
+                emptyDiv.innerHTML = `
+                    <div class="mods-container-empty">
+                        <h2>${escapeHtml(t('no_optional_mods'))}</h2>
+                    </div>`;
+                modsListElement.appendChild(emptyDiv);
+                return;
             }
-        } else {
-            await this.displayMods(modsConfigFile, modsDir, modsListElement);
+
+            const anyInstalled = mods.some((m) => m.installed);
+            if (!anyInstalled) {
+                this.displayEmptyModsMessage(modsListElement);
+                return;
+            }
+
+            for (const mod of mods) {
+                const modElement = document.createElement('div');
+                const safeId = `opt-mod-${slug}-${mod.file}`;
+
+                if (mod.info_missing) {
+                    modElement.innerHTML = `
+                        <div class="mods-container">
+                            <h2>${escapeHtml(t('mod_info_missing_admin').replace('${mod}', mod.file))}</h2>
+                            <div class="switch">
+                                <label class="switch-label">
+                                    <input type="checkbox" id="${escapeHtml(safeId)}" name="mod" ${mod.enabled ? 'checked' : ''}>
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <hr>`;
+                } else {
+                    const modName = mod.name || mod.file;
+                    const modDescription = mod.description || t('no_mod_description');
+                    const isRecommended = Boolean(mod.recommanded || mod.recommended);
+
+                    modElement.innerHTML = `
+                        <div class="mods-container">
+                            ${mod.icon ? `<img src="${escapeHtml(mod.icon)}" class="mods-icon" alt="${escapeHtml(modName)} logo">` : ''}
+                            <div class="mods-container-text">
+                                <div class="mods-container-name">
+                                    <h2>${escapeHtml(modName)}</h2>
+                                    <div class="mods-recommanded" style="display: ${isRecommended ? 'block' : 'none'};">${escapeHtml(t('recommended'))}</div>
+                                </div>
+                                <div class="mod-description">${escapeHtml(modDescription)}</div>
+                            </div>
+                            <div class="switch">
+                                <label class="switch-label">
+                                    <input type="checkbox" id="${escapeHtml(safeId)}" name="mod" ${mod.enabled ? 'checked' : ''}>
+                                    <span class="slider round"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <hr>`;
+                }
+
+                const checkbox = modElement.querySelector('input[type="checkbox"]');
+                checkbox.addEventListener('change', async (e) => {
+                    const desired = e.target.checked;
+                    try {
+                        await toggleOptionalMod(gameRoot, slug, mod.file, desired);
+                    } catch (err) {
+                        console.error('Failed to toggle mod:', err);
+                        e.target.checked = !desired;
+                    }
+                });
+
+                modsListElement.appendChild(modElement);
+            }
+        } catch (err) {
+            console.warn('Could not load optional mods:', err);
+            this.displayEmptyModsMessage(modsListElement);
         }
     }
 
@@ -373,220 +616,27 @@ class Settings {
         const modElement = document.createElement('div');
         modElement.innerHTML = `
             <div class="mods-container-empty">
-              <h2>⚠️ Les mods optionnels n'ont pas encore étés téléchargés. Veuillez lancer une première fois le jeu pour pouvoir les configurer, puis redémarrez le launcher. ⚠️<h2>
+                <h2>${escapeHtml(t('optional_mods_not_downloaded'))}</h2>
             </div>`;
         modsListElement.appendChild(modElement);
     }
 
-    async createModsConfig(modsConfigFile) {
-        const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        const response = await fetch(pkg.env === 'azuriom' ? `${baseUrl}api/centralcorp/mods` : `${baseUrl}utils/mods`);
-        const data = await response.json();
-        const modsConfig = {};
-
-        data.optionalMods.forEach(mod => {
-            modsConfig[mod] = true;
-        });
-
-        fs.writeFileSync(modsConfigFile, JSON.stringify(modsConfig, null, 2));
-    }
-
-    async displayMods(modsConfigFile, modsDir, modsListElement) {
-        let modsConfig;
-
-        try {
-            modsConfig = JSON.parse(fs.readFileSync(modsConfigFile));
-        } catch (error) {
-            await this.createModsConfig(modsConfigFile);
-            modsConfig = JSON.parse(fs.readFileSync(modsConfigFile));
-        }
-
-        const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        const response = await fetch(pkg.env === 'azuriom' ? `${baseUrl}api/centralcorp/mods` : `${baseUrl}utils/mods`);
-        const data = await response.json();
-
-        if (!data.optionalMods || !data.mods) {
-            console.error('La réponse API ne contient pas "optionalMods" ou "mods".');
-            return;
-        }
-
-        data.optionalMods.forEach(mod => {
-            const modElement = document.createElement('div');
-            const modInfo = data.mods[mod];
-            if (!modInfo) {
-                console.error(`Les informations pour le mod "${mod}" sont manquantes dans "mods".`);
-                modElement.innerHTML = `
-                <div class="mods-container">
-                  <h2>${t('mod_info_missing_admin').replace('${mod}', mod)}<h2>
-                   <div class="switch">
-                      <label class="switch-label">
-                        <input type="checkbox" id="${mod}" name="mod" value="${mod}" ${modsConfig[mod] ? 'checked' : ''}>
-                        <span class="slider round"></span>
-                      </label>
-                  </div>
-                </div>
-                <hr>`;
-                return;
-            }
-
-            const modName = modInfo.name;
-            const modDescription = modInfo.description || t('no_mod_description');
-            const modLink = modInfo.icon;
-            const modRecommanded = modInfo.recommanded;
-
-            modElement.innerHTML = `
-                <div class="mods-container">
-                  ${modLink ? `<img src="${modLink}" class="mods-icon" alt="${modName} logo">` : ''}
-                  <div class="mods-container-text">
-                    <div class="mods-container-name">                    
-                        <h2>${modName}</h2>
-                        <div class="mods-recommanded" style="display: none;">${t('recommended')}</div>
-                    </div>
-                    <div class="mod-description">${modDescription}</div>
-                  </div>
-                  <div class="switch">
-                    <label class="switch-label">
-                      <input type="checkbox" id="${mod}" name="mod" value="${mod}" ${modsConfig[mod] ? 'checked' : ''}>
-                      <span class="slider round"></span>
-                    </label>
-                  </div>
-                </div>
-                <hr>
-            `;
-
-            if (modRecommanded) {
-                modElement.querySelector('.mods-recommanded').style.display = 'block';
-            }
-
-            modElement.querySelector('input').addEventListener('change', (e) => {
-                this.toggleMod(mod, e.target.checked, modsConfig, modsDir, modsConfigFile);
-            });
-
-            modsListElement.appendChild(modElement);
-        });
-    }
-
-    async toggleMod(mod, enabled, modsConfig, modsDir, modsConfigFile) {
-        const modFiles = fs.readdirSync(modsDir).filter(file => file.startsWith(mod) && (file.endsWith('.jar') || file.endsWith('.jar-disable')));
-
-        if (modFiles.length > 0) {
-            const modFile = modFiles[0];
-            const modFilePath = path.join(modsDir, modFile);
-            const newModFilePath = enabled ? modFilePath.replace('.jar-disable', '.jar') : modFilePath.replace('.jar', '.jar-disable');
-
-            fs.renameSync(modFilePath, newModFilePath);
-
-            modsConfig[mod] = enabled;
-            fs.writeFileSync(modsConfigFile, JSON.stringify(modsConfig, null, 2));
-        }
-    }
-
-    async selectFile() {
-        const input = document.getElementById('fileInput');
-        input.click();
-
-        input.onchange = async () => {
-            const file = input.files[0];
-            if (!file) return;
-            if (file.type !== 'image/png') {
-                alert(t('error_png_required'));
-                return;
-            }
-            const img = new Image();
-            img.src = URL.createObjectURL(file);
-            img.onload = async () => {
-                if (img.width !== 64 || img.height !== 64) {
-                    alert(t('error_skin_size'));
-                    return;
-                }
-
-                await this.processSkinChange.bind(this)(file);
-            };
-        };
-    }
-
-    async processSkinChange(file) {
-        if (!file) {
-            console.error('No file provided');
-            return;
-        }
-        const azauth = this.getAzAuthUrl();
-        let uuid = (await this.database.get('1234', 'accounts-selected')).value;
-        let account = (await this.database.get(uuid.selected, 'accounts')).value;
-        const access_token = account.access_token;
-        const formData = new FormData();
-        formData.append('access_token', access_token);
-        formData.append('skin', file);
-        const xhr = new XMLHttpRequest();
-
-        xhr.open('POST', `${azauth}api/skin-api/skins/update`, true);
-
-        xhr.onload = async () => {
-            console.log(`XHR Response: ${xhr.response}`);
-            if (xhr.status === 200) {
-                console.log('Skin updated successfully!');
-                await this.initPreviewSkin();
-                await this.headplayer();
-            } else {
-                console.error(`Failed to update skin. Status code: ${xhr.status}`);
-            }
-        };
-
-        xhr.onerror = () => {
-            console.error('Request failed');
-        };
-
-        xhr.send(formData);
-    }
-
-    async initPreviewSkin() {
-        console.log('initPreviewSkin called');
-        const azauth = this.getAzAuthUrl();
-        let uuid = (await this.database.get('1234', 'accounts-selected')).value;
-        let account = (await this.database.get(uuid.selected, 'accounts')).value;
-
-        let title = document.querySelector('.player-skin-title');
-        title.innerHTML = `Skin de ${account.name}`;
-
-        const skin = document.querySelector('.skin-renderer-settings');
-        const cacheBuster = new Date().getTime();
-        const url = `${azauth}skin3d/3d-api/skin-api/${account.name}`;
-        skin.src = url;
-    }
-
-    async initResolution() {
-        let resolutionDatabase = (await this.database.get('1234', 'screen'))?.value?.screen;
-        let resolution = resolutionDatabase ? resolutionDatabase : { width: "1280", height: "720" };
-
-        let width = document.querySelector(".width-size");
-        width.value = resolution.width;
-
-        let height = document.querySelector(".height-size");
-        height.value = resolution.height;
-
-        let select = document.getElementById("select");
-        select.addEventListener("change", (event) => {
-            let resolution = select.options[select.options.selectedIndex].value.split(" x ");
-            select.options.selectedIndex = 0;
-
-            width.value = resolution[0];
-            height.value = resolution[1];
-            this.database.update({ uuid: "1234", screen: { width: resolution[0], height: resolution[1] } }, 'screen');
-        });
-    }
+    // -----------------------------------------------------------------------
+    // Launcher Close Behavior & Tabs
+    // -----------------------------------------------------------------------
 
     async initLauncherSettings() {
-        let launcherDatabase = (await this.database.get('1234', 'launcher'))?.value;
-        let settingsLauncher = {
-            uuid: "1234",
+        const launcherDatabase = (await this.database.get('1234', 'launcher'))?.value;
+        const settingsLauncher = {
+            uuid: '1234',
             launcher: {
-                close: launcherDatabase?.launcher?.close || 'close-launcher'
-            }
-        }
+                close: launcherDatabase?.launcher?.close || 'close-launcher',
+            },
+        };
 
-        let closeLauncher = document.getElementById("launcher-close");
-        let closeAll = document.getElementById("launcher-close-all");
-        let openLauncher = document.getElementById("launcher-open");
+        const closeLauncher = document.getElementById('launcher-close');
+        const closeAll = document.getElementById('launcher-close-all');
+        const openLauncher = document.getElementById('launcher-open');
 
         if (settingsLauncher.launcher.close === 'close-launcher') {
             closeLauncher.checked = true;
@@ -596,58 +646,59 @@ class Settings {
             openLauncher.checked = true;
         }
 
-        closeLauncher.addEventListener("change", () => {
-            if (closeLauncher.checked) {
-                openLauncher.checked = false;
-                closeAll.checked = false;
-            }
-            if (!closeLauncher.checked) closeLauncher.checked = true;
+        closeLauncher.addEventListener('change', () => {
+            openLauncher.checked = false;
+            closeAll.checked = false;
+            closeLauncher.checked = true;
             settingsLauncher.launcher.close = 'close-launcher';
             this.database.update(settingsLauncher, 'launcher');
-        })
+        });
 
-        closeAll.addEventListener("change", () => {
-            if (closeAll.checked) {
-                closeLauncher.checked = false;
-                openLauncher.checked = false;
-            }
-            if (!closeAll.checked) closeAll.checked = true;
+        closeAll.addEventListener('change', () => {
+            closeLauncher.checked = false;
+            openLauncher.checked = false;
+            closeAll.checked = true;
             settingsLauncher.launcher.close = 'close-all';
             this.database.update(settingsLauncher, 'launcher');
-        })
+        });
 
-        openLauncher.addEventListener("change", () => {
-            if (openLauncher.checked) {
-                closeLauncher.checked = false;
-                closeAll.checked = false;
-            }
-            if (!openLauncher.checked) openLauncher.checked = true;
+        openLauncher.addEventListener('change', () => {
+            closeLauncher.checked = false;
+            closeAll.checked = false;
+            openLauncher.checked = true;
             settingsLauncher.launcher.close = 'open-launcher';
             this.database.update(settingsLauncher, 'launcher');
-        })
+        });
     }
 
     initTab() {
-        let TabBtn = document.querySelectorAll('.tab-btn');
-        let TabContent = document.querySelectorAll('.tabs-settings-content');
+        const tabBtns = document.querySelectorAll('.tab-btn');
+        const tabContents = document.querySelectorAll('.tabs-settings-content');
 
-        for (let i = 0; i < TabBtn.length; i++) {
-            TabBtn[i].addEventListener('click', () => {
-                if (TabBtn[i].classList.contains('save-tabs-btn')) return;
-                for (let j = 0; j < TabBtn.length; j++) {
-                    TabContent[j].classList.remove('active-tab-content');
-                    TabBtn[j].classList.remove('active-tab-btn');
+        for (let i = 0; i < tabBtns.length; i++) {
+            tabBtns[i].addEventListener('click', () => {
+                if (tabBtns[i].classList.contains('save-tabs-btn')) return;
+                for (let j = 0; j < tabBtns.length; j++) {
+                    if (tabContents[j]) tabContents[j].classList.remove('active-tab-content');
+                    tabBtns[j].classList.remove('active-tab-btn');
                 }
-                TabContent[i].classList.add('active-tab-content');
-                TabBtn[i].classList.add('active-tab-btn');
+                if (tabContents[i]) tabContents[i].classList.add('active-tab-content');
+                tabBtns[i].classList.add('active-tab-btn');
+                this.updateViewerAnimationState();
             });
         }
 
         document.querySelector('.save-tabs-btn').addEventListener('click', async () => {
+            if (this.skinViewer3D) this.skinViewer3D.stop();
             document.querySelector('.default-tab-btn').click();
             showLoadingOverlay();
-            changePanel("home");
-            await this.refreshData();
+            try {
+                const acc = await this.getSelectedAccount();
+                window.dispatchEvent(new CustomEvent('account-changed', { detail: { account: acc } }));
+                changePanel('home');
+            } finally {
+                hideLoadingOverlay();
+            }
         });
 
         document.getElementById('accounts-tab').innerHTML = `<i class="fas fa-user"></i><span>${t('accounts')}</span>`;
@@ -682,42 +733,60 @@ class Settings {
 
     async initSettingsDefault() {
         if (!(await this.database.getAll('accounts-selected')).length) {
-            this.database.add({ uuid: "1234" }, 'accounts-selected')
+            await this.database.add({ uuid: '1234' }, 'accounts-selected');
         }
 
         if (!(await this.database.getAll('java-path')).length) {
-            this.database.add({ uuid: "1234", path: false }, 'java-path')
+            await this.database.add({ uuid: '1234', path: false }, 'java-path');
         }
 
         if (!(await this.database.getAll('java-args')).length) {
-            this.database.add({ uuid: "1234", args: [] }, 'java-args')
+            await this.database.add({ uuid: '1234', args: [] }, 'java-args');
         }
 
         if (!(await this.database.getAll('launcher')).length) {
-            this.database.add({
-                uuid: "1234",
-                launcher: {
-                    close: 'close-launcher'
-                }
-            }, 'launcher')
+            await this.database.add(
+                {
+                    uuid: '1234',
+                    launcher: {
+                        close: 'close-launcher',
+                    },
+                },
+                'launcher'
+            );
+        }
+
+        if (!(await this.database.getAll('profile')).length) {
+            const defaultInst =
+                (this.config?.instances || []).find((i) => i.is_default) ||
+                (this.config?.instances || [])[0];
+            await this.database.add(
+                {
+                    uuid: '1234',
+                    selectedInstance: defaultInst?.slug || null,
+                },
+                'profile'
+            );
         }
 
         if (!(await this.database.getAll('ram')).length) {
-            this.database.add({ uuid: "1234", ramMin: "2", ramMax: "4" }, 'ram')
+            await this.database.add(
+                {
+                    uuid: '1234',
+                    ramMin: String(this.config?.ram_min ?? 2),
+                    ramMax: String(this.config?.ram_max ?? 4),
+                },
+                'ram'
+            );
         }
 
         if (!(await this.database.getAll('screen')).length) {
-            this.database.add({ uuid: "1234", screen: { width: "1280", height: "720" } }, 'screen')
+            await this.database.add(
+                { uuid: '1234', screen: { width: '<auto>', height: '<auto>' } },
+                'screen'
+            );
         }
     }
-
-    getAzAuthUrl() {
-        const baseUrl = settings_url.endsWith('/') ? settings_url : `${settings_url}/`;
-        return pkg.env === 'azuriom'
-            ? baseUrl
-            : this.config.azauth.endsWith('/')
-                ? this.config.azauth
-                : `${this.config.azauth}/`;
-    }
 }
+
 export default Settings;

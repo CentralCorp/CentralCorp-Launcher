@@ -1,43 +1,24 @@
 {
     "name": "conflictura",
     "preductname": "Conflictura Launcher",
-    "version": "4.0.15",
+    "productName": "Conflictura Launcher",
+    "version": "5.0.0",
     "description": "Conflictura modded server launcher",
-    "main": "src/app.js",
     "author": "Riptiaz/Boulldogo/Vexato/Luuxis",
     "env": "azuriom",
     "settings": "https://conflictura.eu",
+    "user": "",
     "scripts": {
-        "start": "cross-env-shell NODE_ENV=dev electron .",
-        "build": "node build.js --obf=true --build=platform",
-        "dev": "cross-env-shell DEV_TOOL=open nodemon --ignore AppData/ --ignore node_modules/ --legacy-watch --exec npm start",
-        "icon": "node build.js --icon=https://raw.githubusercontent.com/CentralCorp/CentralCorp-Launcher/master/src/assets/images/icon.png"
+        "start": "tauri dev",
+        "dev": "tauri dev",
+        "build": "tauri build"
     },
     "license": "CC0",
-    "nodemonConfig": {
-        "ext": "js,html,css"
-    },
-    "dependencies": {
-        "discord-rpc": "^4.0.1",
-        "electron-updater": "^6.6.2",
-        "https": "^1.0.0",
-        "minecraft-java-core-azbetter": "^4.1.4",
-        "node-fetch": "^2.6.7",
-        "xml-js": "^1.6.11"
-    },
     "devDependencies": {
-        "@electron/rebuild": "^4.0.6",
-        "cross-env": "^7.0.3",
-        "electron": "^37.2.0",
-        "electron-builder": "^26.6.0",
-        "javascript-obfuscator": "^4.1.0",
-        "jimp": "^0.22.12",
-        "node-abi": "^4.31.0",
-        "nodemon": "^3.1.9",
-        "png2icons": "^2.0.1"
+        "@tauri-apps/cli": "^2.2.0"
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/Riptiaz/CentralCorp-Launcher.git"
+        "url": "git+https://github.com/CentralCorp/CentralCorp-Launcher.git"
     }
 }
