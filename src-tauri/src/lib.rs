@@ -61,12 +61,18 @@ pub fn run() {
             if window.label() == "main"
                 && matches!(event, WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed)
             {
-                let state = window.state::<LauncherState>();
-                if state.close_behavior() == "close-all" {
-                    state.terminate_child_processes();
-                }
-                if matches!(event, WindowEvent::Destroyed) {
-                    state.shutdown_discord_rpc();
+                let state = window.state::<LauncherState>().inner().clone();
+                let is_destroyed = matches!(event, WindowEvent::Destroyed);
+                let should_kill_children = state.close_behavior() == "close-all";
+                if should_kill_children || is_destroyed {
+                    std::thread::spawn(move || {
+                        if should_kill_children {
+                            state.terminate_child_processes();
+                        }
+                        if is_destroyed {
+                            state.shutdown_discord_rpc();
+                        }
+                    });
                 }
             }
         })
@@ -81,12 +87,14 @@ pub fn run() {
             commands::auth_azuriom_logout,
             commands::auth_microsoft_login,
             commands::auth_microsoft_refresh,
+            commands::sync_microsoft_panel,
             commands::upload_player_skin,
             commands::set_microsoft_cape,
             commands::list_optional_mods,
             commands::toggle_optional_mod,
             commands::sync_optional_mods,
             commands::launch_instance,
+            commands::set_close_behavior,
             commands::set_discord_rpc,
             commands::open_external_url,
             commands::open_main_window,

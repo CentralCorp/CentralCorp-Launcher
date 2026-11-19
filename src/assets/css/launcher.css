@@ -153,14 +153,6 @@ img {
     box-shadow: 0 0 20px var(--accent-color-glow, rgba(0, 189, 122, 0.6));
 }
 
-.dots {
-    display: none;
-}
-
-.dots span {
-    display: none;
-}
-
 @keyframes spinLoader {
     0% {
         transform: rotate(0deg);

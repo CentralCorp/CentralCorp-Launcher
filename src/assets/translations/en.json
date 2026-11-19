@@ -116,5 +116,7 @@
     "no_capes_owned": "No official capes available on this account.",
     "skin_updated": "Skin updated successfully!",
     "cape_updated": "Cape updated!",
-    "extraction": "Extracting..."
+    "extraction": "Extracting...",
+    "solo_mode": "Singleplayer",
+    "pinned": "Pinned"
 }

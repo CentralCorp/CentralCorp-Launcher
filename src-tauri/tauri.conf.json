@@ -35,7 +35,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob: https: http:; font-src 'self' data:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost tauri: http://tauri.localhost https://tauri.localhost; object-src 'none'; base-uri 'self'; form-action 'none'"
     }
   },
   "bundle": {

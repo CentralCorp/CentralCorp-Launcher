@@ -116,5 +116,7 @@
     "no_capes_owned": "No hay capas oficiales disponibles en esta cuenta.",
     "skin_updated": "¡Skin actualizada correctamente!",
     "cape_updated": "¡Capa actualizada!",
-    "extraction": "Extrayendo..."
+    "extraction": "Extrayendo...",
+    "solo_mode": "Un jugador",
+    "pinned": "Fijado"
 }

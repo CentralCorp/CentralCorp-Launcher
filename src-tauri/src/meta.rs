@@ -99,9 +99,16 @@ pub fn is_dev_environment() -> bool {
             .unwrap_or(false)
 }
 
-/// Parses embedded `package.json` and merges OS/runtime paths into [`LauncherMeta`].
+static LAUNCHER_META_CACHE: std::sync::OnceLock<LauncherMeta> = std::sync::OnceLock::new();
+
+/// Parses embedded `package.json` once and caches [`LauncherMeta`] in a [`std::sync::OnceLock`].
 pub fn read_launcher_meta() -> Result<LauncherMeta, String> {
-    parse_launcher_meta_from_str(EMBEDDED_PACKAGE_JSON)
+    if let Some(cached) = LAUNCHER_META_CACHE.get() {
+        return Ok(cached.clone());
+    }
+    let parsed = parse_launcher_meta_from_str(EMBEDDED_PACKAGE_JSON)?;
+    let _ = LAUNCHER_META_CACHE.set(parsed.clone());
+    Ok(parsed)
 }
 
 pub fn parse_launcher_meta_from_str(pkg_json: &str) -> Result<LauncherMeta, String> {

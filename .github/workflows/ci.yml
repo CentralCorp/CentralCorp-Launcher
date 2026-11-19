@@ -2,7 +2,7 @@ name: Launcher Build
 
 on:
   push:
-    branches: [ master, main, v2-rework ]
+    branches: [ master, main, v2-rework, v2-opti ]
     tags: [ 'v*' ]
   workflow_dispatch:
 

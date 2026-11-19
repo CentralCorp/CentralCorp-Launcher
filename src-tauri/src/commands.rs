@@ -1,5 +1,7 @@
+use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -40,46 +42,221 @@ pub fn get_launcher_meta() -> Result<LauncherMeta, String> {
     read_launcher_meta()
 }
 
+static TOTAL_SYSTEM_RAM_GB: OnceLock<f64> = OnceLock::new();
+
 #[tauri::command]
-pub fn get_system_memory() -> Result<SystemMemoryInfo, String> {
-    let mut sys = sysinfo::System::new();
-    sys.refresh_memory();
+pub async fn get_system_memory() -> Result<SystemMemoryInfo, String> {
+    tokio::task::spawn_blocking(|| {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
 
-    let total_bytes = sys.total_memory();
-    let avail = sys.available_memory();
-    let free_bytes = if avail > 0 { avail } else { sys.free_memory() };
+        let total_gb = *TOTAL_SYSTEM_RAM_GB
+            .get_or_init(|| round_bytes_to_half_gb(sys.total_memory()).max(1.0));
+        let avail = sys.available_memory();
+        let free_bytes = if avail > 0 { avail } else { sys.free_memory() };
+        let free_gb = round_bytes_to_half_gb(free_bytes).min(total_gb);
 
-    let total_gb = round_bytes_to_half_gb(total_bytes).max(1.0);
-    let free_gb = round_bytes_to_half_gb(free_bytes).min(total_gb);
-
-    Ok(SystemMemoryInfo { total_gb, free_gb })
+        SystemMemoryInfo { total_gb, free_gb }
+    })
+    .await
+    .map_err(|e| format!("System memory probe failed: {e}"))
 }
 
-#[tauri::command]
-pub async fn fetch_remote_config(state: State<'_, LauncherState>) -> Result<Value, String> {
+#[tauri::command(rename_all = "snake_case")]
+pub async fn fetch_remote_config(
+    state: State<'_, LauncherState>,
+    force_refresh: Option<bool>,
+) -> Result<Value, String> {
     let meta = read_launcher_meta()?;
-    let config_url = resolve_remote_config_url(&meta)?;
+    fetch_remote_config_inner(state.inner(), &meta, force_refresh.unwrap_or(false)).await
+}
 
-    let resp = state
-        .http()
-        .get(&config_url)
+fn append_bootstrap_include_query(base_url: &str) -> String {
+    if let Ok(mut parsed) = url::Url::parse(base_url) {
+        let has_include = parsed
+            .query_pairs()
+            .any(|(k, _)| k.eq_ignore_ascii_case("include"));
+        if !has_include {
+            parsed.query_pairs_mut().append_pair("include", "news,mods");
+        }
+        parsed.into()
+    } else if base_url.contains('?') {
+        format!("{base_url}&include=news,mods")
+    } else {
+        format!("{base_url}?include=news,mods")
+    }
+}
+
+fn is_mods_manifest_object(val: &Value) -> bool {
+    val.as_object()
+        .map(|obj| obj.contains_key("optionalMods"))
+        .unwrap_or(false)
+}
+
+/// Extracts optional bootstrap `included_news` and per-instance optional-mods manifests from a
+/// `/utils/api?include=news,mods` or `/api/centralcorp/options?include=news,mods` response,
+/// caching them inside [`LauncherState`] and removing bulky transient bootstrap keys before IPC.
+fn extract_and_cache_bootstrap_extras(state: &LauncherState, raw: &mut Value) {
+    let Some(obj) = raw.as_object_mut() else {
+        return;
+    };
+
+    // 1. Extract bootstrap news (`included_news` or `news`)
+    let news_payload = obj.remove("included_news").or_else(|| {
+        if obj
+            .get("news")
+            .map(|v| v.is_array() || v.is_object())
+            .unwrap_or(false)
+        {
+            obj.remove("news")
+        } else {
+            None
+        }
+    });
+    if let Some(news_val) = news_payload {
+        let parsed = normalize_panel_news(news_val);
+        state.store_included_news(parsed);
+    }
+
+    // Determine primary fallback slug for single-instance manifests
+    let first_slug = obj
+        .get("instances")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|inst| inst.get("slug"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("default")
+        .to_string();
+
+    // 2. Extract top-level `included_mods` / `mods_by_instance` / `mods`
+    for top_key in ["included_mods", "mods_by_instance"] {
+        if let Some(mods_val) = obj.remove(top_key) {
+            cache_mods_payload(state, &mods_val, &first_slug);
+        }
+    }
+    if let Some(top_mods) = obj.get("mods") {
+        if top_mods.is_object() {
+            cache_mods_payload(state, top_mods, &first_slug);
+        }
+    }
+
+    // 3. Extract per-instance embedded mod manifests if present
+    if let Some(Value::Array(instances)) = obj.get_mut("instances") {
+        for (idx, inst) in instances.iter_mut().enumerate() {
+            let Some(inst_map) = inst.as_object_mut() else {
+                continue;
+            };
+            let slug = inst_map
+                .get("slug")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    if idx == 0 {
+                        "default".to_string()
+                    } else {
+                        format!("instance-{}", idx + 1)
+                    }
+                });
+
+            for inst_key in ["included_mods", "optional_mods", "mods_manifest"] {
+                if let Some(m_val) = inst_map.remove(inst_key) {
+                    if is_mods_manifest_object(&m_val) {
+                        state.store_instance_mods(&slug, m_val);
+                    }
+                }
+            }
+            if let Some(m_val) = inst_map.get("mods") {
+                if is_mods_manifest_object(m_val) {
+                    state.store_instance_mods(&slug, m_val.clone());
+                }
+            }
+        }
+    }
+}
+
+fn cache_mods_payload(state: &LauncherState, payload: &Value, default_slug: &str) {
+    if is_mods_manifest_object(payload) {
+        state.store_instance_mods(default_slug, payload.clone());
+        if default_slug != "default" {
+            state.store_instance_mods("default", payload.clone());
+        }
+        return;
+    }
+
+    if let Some(map) = payload.as_object() {
+        for (slug, entry) in map {
+            if is_mods_manifest_object(entry) {
+                state.store_instance_mods(slug, entry.clone());
+            }
+        }
+    }
+}
+
+async fn fetch_remote_config_inner(
+    state: &LauncherState,
+    meta: &LauncherMeta,
+    force_refresh: bool,
+) -> Result<Value, String> {
+    if !force_refresh {
+        if let Some(cached) = state.fresh_remote_config() {
+            return Ok(cached);
+        }
+    }
+
+    let base_config_url = resolve_remote_config_url(meta)?;
+    let request_url = append_bootstrap_include_query(&base_config_url);
+    let cached_entry = state.cached_remote_config_entry();
+
+    let mut req = state.http().get(&request_url);
+    if let Some(etag) = cached_entry.as_ref().and_then(|c| c.etag.as_deref()) {
+        if !etag.trim().is_empty() {
+            req = req.header(reqwest::header::IF_NONE_MATCH, etag);
+        }
+    }
+
+    let resp = req
         .send()
         .await
-        .map_err(|e| format!("Failed to reach backend configuration '{config_url}': {e}"))?;
+        .map_err(|e| format!("Failed to reach backend configuration '{base_config_url}': {e}"))?;
 
     let status = resp.status();
+    if status == reqwest::StatusCode::NOT_MODIFIED {
+        if let Some(touched) = state.touch_all_cached_bootstrap() {
+            return Ok(touched);
+        }
+        if let Some(prev) = cached_entry {
+            return Ok(prev.config);
+        }
+    }
+
     if !status.is_success() {
         return Err(format!(
-            "Backend configuration endpoint '{config_url}' returned HTTP {status}"
+            "Backend configuration endpoint '{base_config_url}' returned HTTP {status}"
         ));
     }
 
-    let raw_json: Value = resp
+    let etag = resp
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
+    let mut raw_json: Value = resp
         .json()
         .await
-        .map_err(|e| format!("Invalid JSON from '{config_url}': {e}"))?;
+        .map_err(|e| format!("Invalid JSON from '{base_config_url}': {e}"))?;
 
-    normalize_remote_config(raw_json, &meta)
+    extract_and_cache_bootstrap_extras(state, &mut raw_json);
+    let normalized = normalize_remote_config(raw_json, meta)?;
+    state.store_remote_config(etag, normalized.clone());
+
+    Ok(normalized)
 }
 
 // ---------------------------------------------------------------------------
@@ -94,8 +271,24 @@ pub async fn fetch_news(
     azauth_url: Option<String>,
 ) -> Result<Vec<NewsItem>, String> {
     let meta = read_launcher_meta()?;
+    fetch_news_inner(
+        state.inner(),
+        &meta,
+        news_source.as_deref(),
+        news_url.as_deref(),
+        azauth_url.as_deref(),
+    )
+    .await
+}
+
+async fn fetch_news_inner(
+    state: &LauncherState,
+    meta: &LauncherMeta,
+    news_source: Option<&str>,
+    news_url: Option<&str>,
+    azauth_url: Option<&str>,
+) -> Result<Vec<NewsItem>, String> {
     let mode = news_source
-        .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_ascii_lowercase)
@@ -108,7 +301,6 @@ pub async fn fetch_news(
         });
 
     let resolved_panel_news_url = news_url
-        .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
@@ -124,7 +316,6 @@ pub async fn fetch_news(
         });
 
     let resolved_rss_url = azauth_url
-        .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|u| format!("{}/api/rss", u.trim_end_matches('/')))
@@ -143,21 +334,43 @@ pub async fn fetch_news(
 
     match mode.as_str() {
         "panel" => {
+            if let Some(cached_news) = state.fresh_included_news() {
+                return Ok(merge_and_sort_news(cached_news, Vec::new()));
+            }
             let Some(url) = resolved_panel_news_url else {
                 return Ok(Vec::new());
             };
-            fetch_panel_news_from_url(http, &url).await
+            let items = fetch_panel_news_from_url(http, &url).await?;
+            state.store_included_news(items.clone());
+            Ok(merge_and_sort_news(items, Vec::new()))
         }
         "azuriom" | "rss" => {
+            if let Some(cached_news) = state.fresh_included_news() {
+                if !cached_news.is_empty() {
+                    return Ok(merge_and_sort_news(cached_news, Vec::new()));
+                }
+            }
             let Some(url) = resolved_rss_url else {
                 return Ok(Vec::new());
             };
             fetch_rss_news_from_url(http, &url).await
         }
         "both" => {
+            if let Some(cached_panel_items) = state.fresh_included_news() {
+                let rss_items = match resolved_rss_url {
+                    Some(ref url) => fetch_rss_news_from_url(http, url).await.unwrap_or_default(),
+                    None => Vec::new(),
+                };
+                return Ok(merge_and_sort_news(cached_panel_items, rss_items));
+            }
+
             let panel_fut = async {
                 match resolved_panel_news_url {
-                    Some(ref url) => fetch_panel_news_from_url(http, url).await.unwrap_or_default(),
+                    Some(ref url) => {
+                        let fetched = fetch_panel_news_from_url(http, url).await.unwrap_or_default();
+                        state.store_included_news(fetched.clone());
+                        fetched
+                    }
                     None => Vec::new(),
                 }
             };
@@ -228,6 +441,56 @@ async fn fetch_rss_news_from_url(
 // 3. Minecraft Server Status Ping (+ mcsrvstat.us HTTP Fallback)
 // ---------------------------------------------------------------------------
 
+/// Returns `true` when `host` is empty, `localhost`, loopback, link-local, or RFC1918 private
+/// so we never leak internal/LAN addresses or waste 5s querying `api.mcsrvstat.us`.
+pub fn is_private_or_local_host(host: &str) -> bool {
+    let clean = host
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+
+    if clean.is_empty()
+        || clean == "localhost"
+        || clean.ends_with(".localhost")
+        || clean.ends_with(".local")
+        || clean.ends_with(".internal")
+        || clean.ends_with(".lan")
+        || clean.ends_with(".home")
+    {
+        return true;
+    }
+
+    if let Ok(ip) = clean.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(v4) => {
+                v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified()
+                    || v4.is_broadcast()
+            }
+            IpAddr::V6(v6) => {
+                if let Some(mapped) = v6.to_ipv4_mapped() {
+                    mapped.is_loopback()
+                        || mapped.is_private()
+                        || mapped.is_link_local()
+                        || mapped.is_unspecified()
+                } else {
+                    let seg0 = v6.segments()[0];
+                    v6.is_loopback()
+                        || v6.is_unspecified()
+                        || (seg0 & 0xfe00) == 0xfc00 // fc00::/7 unique local
+                        || (seg0 & 0xffc0) == 0xfe80 // fe80::/10 link-local
+                }
+            }
+        };
+    }
+
+    false
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn ping_minecraft_server(
     state: State<'_, LauncherState>,
@@ -241,7 +504,7 @@ pub async fn ping_minecraft_server(
     let resolved_port = if port == 0 { 25565 } else { port };
 
     if let Ok(direct) = ServerStatusClient::new(trimmed_host, resolved_port)
-        .with_timeout(3_000)
+        .with_timeout(2_500)
         .ping()
         .await
     {
@@ -250,11 +513,13 @@ pub async fn ping_minecraft_server(
         }
     }
 
-    // Fallback to HTTP status API when outbound TCP 25565 is filtered by firewall
-    if let Some(fallback) =
-        ping_via_mcsrvstat_fallback(state.http(), trimmed_host, resolved_port).await
-    {
-        return Ok(fallback);
+    // Fallback to HTTP status API only for public routable hostnames/IPs
+    if !is_private_or_local_host(trimmed_host) {
+        if let Some(fallback) =
+            ping_via_mcsrvstat_fallback(state.http(), trimmed_host, resolved_port).await
+        {
+            return Ok(fallback);
+        }
     }
 
     Ok(offline_server_status())
@@ -286,7 +551,7 @@ async fn ping_via_mcsrvstat_fallback(
 
     let resp = http
         .get(&api_url)
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(4))
         .send()
         .await
         .ok()?;
@@ -557,6 +822,16 @@ pub async fn auth_microsoft_refresh(
     Ok(refreshed)
 }
 
+#[tauri::command(rename_all = "snake_case")]
+pub async fn sync_microsoft_panel(
+    state: State<'_, LauncherState>,
+    mut account: AuthAccount,
+    panel_base_url: Option<String>,
+) -> Result<AuthAccount, String> {
+    sync_microsoft_account_if_panel(state.http(), panel_base_url.as_deref(), &mut account).await?;
+    Ok(account)
+}
+
 /// Synchronizes a Microsoft-authenticated player with CentralPanel `POST {base}/utils/auth/microsoft/sync`
 /// when running in Panel mode (`env != "azuriom"`), populating `account.user_info` (`role`, `money`,
 /// `banned`, `verified`, `maintenance_bypass`) and rejecting banned accounts.
@@ -730,28 +1005,33 @@ fn default_microsoft_user_info(uuid: &str) -> UserInfo {
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn upload_player_skin(
+    state: State<'_, LauncherState>,
     mut account: AuthAccount,
     base_url: Option<String>,
+    panel_base_url: Option<String>,
     png_base64: String,
     slim: bool,
 ) -> Result<AuthAccount, String> {
     let png_bytes = decode_png_base64(&png_base64)?;
+    let requested_variant = if slim {
+        SkinVariant::Slim
+    } else {
+        SkinVariant::Classic
+    };
 
     if account
         .meta
         .account_type
         .eq_ignore_ascii_case("microsoft")
     {
-        let variant = if slim {
-            SkinVariant::Slim
-        } else {
-            SkinVariant::Classic
-        };
         let updated_profile = MicrosoftClient::new(None)
-            .upload_skin(&account.access_token, &png_bytes, variant)
+            .upload_skin(&account.access_token, &png_bytes, requested_variant)
             .await
             .map_err(|e| e.to_string())?;
         account.profile = Some(updated_profile);
+        let _ =
+            sync_microsoft_account_if_panel(state.http(), panel_base_url.as_deref(), &mut account)
+                .await;
         return Ok(account);
     }
 
@@ -763,12 +1043,40 @@ pub async fn upload_player_skin(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Refresh Azuriom session to obtain fresh skin URL/base64, or update in-place on fallback
-    if let Ok(verified) = az_client.verify(&account.access_token).await {
+    let data_uri = format!("data:image/png;base64,{}", BASE64_STANDARD.encode(&png_bytes));
+
+    // Refresh Azuriom session and stamp fresh base64 + chosen Classic/Slim variant for instant 3D preview
+    if let Ok(mut verified) = az_client.verify(&account.access_token).await {
+        let skin_id = verified
+            .user_info
+            .as_ref()
+            .and_then(|u| u.id.as_deref())
+            .unwrap_or(&verified.uuid)
+            .to_string();
+        let fallback_url = format!("{}/{}", az_client.skin_base_url(), skin_id);
+        let profile = verified.profile.get_or_insert_with(|| MinecraftProfile {
+            id: verified.uuid.clone(),
+            name: verified.name.clone(),
+            skins: Vec::new(),
+            capes: Vec::new(),
+        });
+        if let Some(first_skin) = profile.skins.first_mut() {
+            first_skin.variant = Some(requested_variant);
+            first_skin.base64 = Some(data_uri);
+        } else {
+            profile.skins.push(SkinInfo {
+                id: None,
+                state: Some("ACTIVE".to_string()),
+                url: fallback_url,
+                texture_key: None,
+                variant: Some(requested_variant),
+                alias: None,
+                base64: Some(data_uri),
+            });
+        }
         return Ok(verified);
     }
 
-    let data_uri = format!("data:image/png;base64,{}", BASE64_STANDARD.encode(&png_bytes));
     let skin_id = account
         .user_info
         .as_ref()
@@ -787,11 +1095,7 @@ pub async fn upload_player_skin(
         state: Some("ACTIVE".to_string()),
         url: skin_url,
         texture_key: None,
-        variant: Some(if slim {
-            SkinVariant::Slim
-        } else {
-            SkinVariant::Classic
-        }),
+        variant: Some(requested_variant),
         alias: None,
         base64: Some(data_uri),
     }];
@@ -828,21 +1132,25 @@ fn decode_png_base64(input: &str) -> Result<Vec<u8>, String> {
 // 7. Instance-Scoped Optional Mods (`list`, `toggle`, `sync`)
 // ---------------------------------------------------------------------------
 
-#[tauri::command(rename_all = "snake_case")]
-pub async fn list_optional_mods(
-    state: State<'_, LauncherState>,
-    data_directory: String,
-    instance_slug: String,
-    mods_url: String,
-) -> Result<Vec<OptionalModState>, String> {
+async fn get_or_fetch_mods_manifest(
+    state: &LauncherState,
+    instance_slug: &str,
+    mods_url: &str,
+    timeout_secs: u64,
+) -> Result<Value, String> {
+    if let Some(cached) = state.fresh_instance_mods(instance_slug) {
+        return Ok(cached);
+    }
+
     let trimmed_url = mods_url.trim();
     if trimmed_url.is_empty() {
-        return Ok(Vec::new());
+        return Ok(serde_json::json!({ "optionalMods": [], "mods": {} }));
     }
 
     let resp = state
         .http()
         .get(trimmed_url)
+        .timeout(Duration::from_secs(timeout_secs))
         .send()
         .await
         .map_err(|e| format!("Failed to fetch optional mods manifest '{trimmed_url}': {e}"))?;
@@ -859,28 +1167,79 @@ pub async fn list_optional_mods(
         .await
         .map_err(|e| format!("Invalid optional mods JSON from '{trimmed_url}': {e}"))?;
 
+    state.store_instance_mods(instance_slug, manifest.clone());
+    Ok(manifest)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn list_optional_mods(
+    state: State<'_, LauncherState>,
+    data_directory: String,
+    instance_slug: String,
+    mods_url: String,
+) -> Result<Vec<OptionalModState>, String> {
+    let trimmed_url = mods_url.trim();
+    if trimmed_url.is_empty() && state.fresh_instance_mods(&instance_slug).is_none() {
+        return Ok(Vec::new());
+    }
+
+    let manifest = get_or_fetch_mods_manifest(state.inner(), &instance_slug, trimmed_url, 10).await?;
     let root = PathBuf::from(data_directory.trim());
-    resolve_optional_mods_state(&root, &instance_slug, &manifest)
+    let slug = instance_slug.clone();
+
+    let _io_guard = state.mods_io_lock().lock().await;
+    tokio::task::spawn_blocking(move || resolve_optional_mods_state(&root, &slug, &manifest))
+        .await
+        .map_err(|e| format!("Optional mods worker panicked: {e}"))?
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn toggle_optional_mod(
+    state: State<'_, LauncherState>,
     data_directory: String,
     instance_slug: String,
     mod_file: String,
     enabled: bool,
 ) -> Result<OptionalModState, String> {
     let root = PathBuf::from(data_directory.trim());
-    toggle_optional_mod_on_disk(&root, &instance_slug, &mod_file, enabled)
+    let _io_guard = state.mods_io_lock().lock().await;
+    tokio::task::spawn_blocking(move || {
+        toggle_optional_mod_on_disk(&root, &instance_slug, &mod_file, enabled)
+    })
+    .await
+    .map_err(|e| format!("Optional mods toggle worker panicked: {e}"))?
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn sync_optional_mods(
+    state: State<'_, LauncherState>,
     data_directory: String,
     instance_slug: String,
+    mods_url: Option<String>,
 ) -> Result<(), String> {
+    let cached_or_fetched = if let Some(cached) = state.fresh_instance_mods(&instance_slug) {
+        Some(cached)
+    } else if let Some(url) = mods_url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        get_or_fetch_mods_manifest(state.inner(), &instance_slug, url, 5)
+            .await
+            .ok()
+    } else {
+        None
+    };
+
     let root = PathBuf::from(data_directory.trim());
-    sync_optional_mods_on_disk(&root, &instance_slug)
+    let slug = instance_slug.clone();
+    let _io_guard = state.mods_io_lock().lock().await;
+    tokio::task::spawn_blocking(move || {
+        if let Some(manifest) = cached_or_fetched {
+            if resolve_optional_mods_state(&root, &slug, &manifest).is_ok() {
+                return Ok(());
+            }
+        }
+        sync_optional_mods_on_disk(&root, &slug)
+    })
+    .await
+    .map_err(|e| format!("Optional mods sync worker panicked: {e}"))?
 }
 
 // ---------------------------------------------------------------------------
@@ -907,7 +1266,12 @@ pub async fn launch_instance(
     state.set_close_behavior(&close_behavior);
 
     let tracked_pid_slot = Arc::new(Mutex::new(0_u32));
+    let already_closed = Arc::new(AtomicBool::new(false));
+    let last_taskbar_state = Arc::new(Mutex::new((0_u8, 0_u64)));
+
     let cb_pid_slot = Arc::clone(&tracked_pid_slot);
+    let cb_already_closed = Arc::clone(&already_closed);
+    let cb_taskbar = Arc::clone(&last_taskbar_state);
     let cb_state = state.inner().clone();
     let cb_app = app.clone();
 
@@ -922,9 +1286,10 @@ pub async fn launch_instance(
             _ => {}
         }
 
-        update_taskbar_progress_from_event(&cb_app, &event);
+        update_taskbar_progress_from_event(&cb_app, &event, &cb_taskbar);
 
         if matches!(event, LaunchEvent::Close { .. }) {
+            cb_already_closed.store(true, Ordering::SeqCst);
             if let Ok(guard) = cb_pid_slot.lock() {
                 if *guard != 0 {
                     cb_state.remove_child_pid(*guard);
@@ -954,8 +1319,8 @@ pub async fn launch_instance(
     // on a brand-new first launch, non-recommended (`recommended: false`) or previously disabled
     // optional mods extracted from `mods-optional` packages are renamed to `.jar-disable`.
     if post_prepare_modded {
-        reconcile_optional_mods_post_prepare(
-            state.http(),
+        reconcile_optional_mods_with_state(
+            state.inner(),
             &post_prepare_root,
             &post_prepare_slug,
             mods_url.as_deref(),
@@ -971,76 +1336,122 @@ pub async fn launch_instance(
         }
     };
 
-    if let Ok(mut guard) = tracked_pid_slot.lock() {
-        *guard = pid;
+    if !already_closed.load(Ordering::SeqCst) {
+        if let Ok(mut guard) = tracked_pid_slot.lock() {
+            *guard = pid;
+        }
+        state.register_child_pid(pid);
+        if already_closed.load(Ordering::SeqCst) {
+            state.remove_child_pid(pid);
+        }
     }
-    state.register_child_pid(pid);
 
     Ok(pid)
 }
 
+async fn reconcile_optional_mods_with_state(
+    state: &LauncherState,
+    data_directory: &std::path::Path,
+    instance_slug: &str,
+    mods_url: Option<&str>,
+) {
+    let manifest_opt = if let Some(cached) = state.fresh_instance_mods(instance_slug) {
+        Some(cached)
+    } else if let Some(trimmed_url) = mods_url.map(str::trim).filter(|s| !s.is_empty()) {
+        get_or_fetch_mods_manifest(state, instance_slug, trimmed_url, 5)
+            .await
+            .ok()
+    } else {
+        None
+    };
+
+    let root = data_directory.to_path_buf();
+    let slug = instance_slug.to_string();
+    let _io_guard = state.mods_io_lock().lock().await;
+    let _ = tokio::task::spawn_blocking(move || {
+        if let Some(manifest) = manifest_opt {
+            if resolve_optional_mods_state(&root, &slug, &manifest).is_ok() {
+                return;
+            }
+        }
+        let _ = sync_optional_mods_on_disk(&root, &slug);
+    })
+    .await;
+}
+
+#[cfg(test)]
 async fn reconcile_optional_mods_post_prepare(
     http: &reqwest::Client,
     data_directory: &std::path::Path,
     instance_slug: &str,
     mods_url: Option<&str>,
 ) {
-    if let Some(trimmed_url) = mods_url.map(str::trim).filter(|s| !s.is_empty()) {
-        if let Ok(resp) = http
-            .get(trimmed_url)
-            .timeout(Duration::from_secs(5))
-            .send()
-            .await
-        {
-            if resp.status().is_success() {
-                if let Ok(manifest) = resp.json::<Value>().await {
-                    if resolve_optional_mods_state(data_directory, instance_slug, &manifest).is_ok()
-                    {
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    let _ = sync_optional_mods_on_disk(data_directory, instance_slug);
+    let temp_state = LauncherState::with_http_client(http.clone());
+    reconcile_optional_mods_with_state(&temp_state, data_directory, instance_slug, mods_url).await;
 }
 
-fn update_taskbar_progress_from_event(app: &AppHandle, event: &LaunchEvent) {
-    let Some(win) = app.get_webview_window("main") else {
-        return;
-    };
-
-    match event {
+fn update_taskbar_progress_from_event(
+    app: &AppHandle,
+    event: &LaunchEvent,
+    last_state: &Mutex<(u8, u64)>,
+) {
+    let desired: Option<(u8, u64, ProgressBarState)> = match event {
         LaunchEvent::Check { current, total, .. } if *total > 0 => {
             let pct = ((*current as u64).saturating_mul(100) / (*total as u64)).min(100);
-            let _ = win.set_progress_bar(ProgressBarState {
-                status: Some(ProgressBarStatus::Normal),
-                progress: Some(pct),
-            });
+            Some((
+                1,
+                pct,
+                ProgressBarState {
+                    status: Some(ProgressBarStatus::Normal),
+                    progress: Some(pct),
+                },
+            ))
         }
         LaunchEvent::Progress {
             downloaded, total, ..
         } if *total > 0 => {
             let pct = (downloaded.saturating_mul(100) / *total).min(100);
-            let _ = win.set_progress_bar(ProgressBarState {
-                status: Some(ProgressBarStatus::Normal),
-                progress: Some(pct),
-            });
+            Some((
+                1,
+                pct,
+                ProgressBarState {
+                    status: Some(ProgressBarStatus::Normal),
+                    progress: Some(pct),
+                },
+            ))
         }
-        LaunchEvent::Extract { .. } => {
-            let _ = win.set_progress_bar(ProgressBarState {
+        LaunchEvent::Extract { .. } => Some((
+            2,
+            0,
+            ProgressBarState {
                 status: Some(ProgressBarStatus::Indeterminate),
                 progress: None,
-            });
-        }
-        LaunchEvent::Data { .. } | LaunchEvent::Close { .. } | LaunchEvent::Error { .. } => {
-            let _ = win.set_progress_bar(ProgressBarState {
+            },
+        )),
+        LaunchEvent::Data { .. } | LaunchEvent::Close { .. } | LaunchEvent::Error { .. } => Some((
+            0,
+            0,
+            ProgressBarState {
                 status: Some(ProgressBarStatus::None),
                 progress: None,
-            });
+            },
+        )),
+        _ => None,
+    };
+
+    let Some((tag, pct, bar_state)) = desired else {
+        return;
+    };
+
+    if let Ok(mut prev) = last_state.lock() {
+        if *prev == (tag, pct) {
+            return;
         }
-        _ => {}
+        *prev = (tag, pct);
+    }
+
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.set_progress_bar(bar_state);
     }
 }
 
@@ -1056,6 +1467,11 @@ fn clear_taskbar_progress(app: &AppHandle) {
 // ---------------------------------------------------------------------------
 // 9. Discord Rich Presence, External URLs, Window Routing & App Updates
 // ---------------------------------------------------------------------------
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_close_behavior(state: State<'_, LauncherState>, behavior: String) {
+    state.set_close_behavior(&behavior);
+}
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn set_discord_rpc(
@@ -1106,24 +1522,42 @@ pub fn open_main_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(debug_assertions)]
+fn debug_log_sender() -> &'static std::sync::mpsc::Sender<String> {
+    static SENDER: OnceLock<std::sync::mpsc::Sender<String>> = OnceLock::new();
+    SENDER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let _ = std::thread::Builder::new()
+            .name("centralcorp-debug-log".to_string())
+            .spawn(move || {
+                use std::io::Write;
+                let mut file_opt = std::env::current_exe()
+                    .ok()
+                    .and_then(|exe| exe.parent().map(|d| d.join("debug.log")))
+                    .and_then(|path| {
+                        std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(path)
+                            .ok()
+                    });
+                while let Ok(msg) = rx.recv() {
+                    eprint!("{msg}");
+                    if let Some(ref mut f) = file_opt {
+                        let _ = f.write_all(msg.as_bytes());
+                    }
+                }
+            });
+        tx
+    })
+}
+
 pub fn write_debug_trace(line: &str) {
     #[cfg(debug_assertions)]
     {
-        use std::io::Write;
         let ts = chrono::Local::now().format("%H:%M:%S%.3f");
         let formatted = format!("[{ts}] {line}\n");
-        eprint!("{formatted}");
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                if let Ok(mut f) = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(dir.join("debug.log"))
-                {
-                    let _ = f.write_all(formatted.as_bytes());
-                }
-            }
-        }
+        let _ = debug_log_sender().send(formatted);
     }
     #[cfg(not(debug_assertions))]
     {
@@ -2037,6 +2471,203 @@ mod tests {
             config_v2
         );
         assert!(inst_dir.join("mods/minimap.jar-disable").exists());
+
+        server.abort();
+    }
+
+    #[test]
+    fn test_is_private_or_local_host_guard() {
+        assert!(is_private_or_local_host(""));
+        assert!(is_private_or_local_host("localhost"));
+        assert!(is_private_or_local_host("mc.local"));
+        assert!(is_private_or_local_host("127.0.0.1"));
+        assert!(is_private_or_local_host("10.0.4.12"));
+        assert!(is_private_or_local_host("192.168.1.50"));
+        assert!(is_private_or_local_host("172.16.0.1"));
+        assert!(is_private_or_local_host("172.31.255.254"));
+        assert!(is_private_or_local_host("::1"));
+        assert!(is_private_or_local_host("[::1]"));
+
+        assert!(!is_private_or_local_host("172.15.0.1"));
+        assert!(!is_private_or_local_host("172.32.0.1"));
+        assert!(!is_private_or_local_host("play.conflictura.eu"));
+        assert!(!is_private_or_local_host("1.1.1.1"));
+    }
+
+    #[tokio::test]
+    async fn test_bootstrap_memoization_etag_and_included_news_mods() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let api_hits = Arc::new(Mutex::new(0_usize));
+        let news_hits = Arc::new(Mutex::new(0_usize));
+        let mods_hits = Arc::new(Mutex::new(0_usize));
+        let rss_hits = Arc::new(Mutex::new(0_usize));
+        let saw_include = Arc::new(Mutex::new(false));
+        let saw_if_none_match = Arc::new(Mutex::new(false));
+
+        let api_h = Arc::clone(&api_hits);
+        let news_h = Arc::clone(&news_hits);
+        let mods_h = Arc::clone(&mods_hits);
+        let rss_h = Arc::clone(&rss_hits);
+        let inc_h = Arc::clone(&saw_include);
+        let inm_h = Arc::clone(&saw_if_none_match);
+
+        let server = tokio::spawn(async move {
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = vec![0_u8; 8192];
+                let n = sock.read(&mut buf).await.unwrap_or(0);
+                if n == 0 {
+                    continue;
+                }
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let first_line = req.lines().next().unwrap_or("");
+                let target = first_line.split_whitespace().nth(1).unwrap_or("/");
+
+                if target.starts_with("/utils/api") {
+                    *api_h.lock().unwrap() += 1;
+                    if target.contains("include=news%2Cmods") || target.contains("include=news,mods") {
+                        *inc_h.lock().unwrap() = true;
+                    }
+                    if req.to_ascii_lowercase().contains("if-none-match: \"v2-etag-1\"") {
+                        *inm_h.lock().unwrap() = true;
+                        let resp = "HTTP/1.1 304 Not Modified\r\nETag: \"v2-etag-1\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = sock.write_all(resp.as_bytes()).await;
+                        continue;
+                    }
+                    let payload = json!({
+                        "auth_mode": "both",
+                        "news_source": "both",
+                        "dataDirectory": "centralcorp",
+                        "included_news": [
+                            {
+                                "title": "Bootstrap News",
+                                "content": "<p>Zero extra round-trip</p>",
+                                "author": "Admin",
+                                "publish_date": "2026-11-18T08:00:00+00:00",
+                                "is_pinned": true
+                            }
+                        ],
+                        "included_mods": {
+                            "survival": {
+                                "optionalMods": ["sodium.jar"],
+                                "mods": {
+                                    "sodium.jar": {
+                                        "name": "Sodium",
+                                        "description": "Fast",
+                                        "recommended": true
+                                    }
+                                }
+                            }
+                        },
+                        "instances": [
+                            {
+                                "slug": "survival",
+                                "name": "Survival",
+                                "game_version": "1.20.1"
+                            }
+                        ]
+                    });
+                    let body = serde_json::to_string(&payload).unwrap();
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nETag: \"v2-etag-1\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                } else if target.starts_with("/utils/news") {
+                    *news_h.lock().unwrap() += 1;
+                    let body = "[]";
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                } else if target.starts_with("/utils/instances/survival/mods") {
+                    *mods_h.lock().unwrap() += 1;
+                    let body = r#"{"optionalMods":[],"mods":{}}"#;
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                } else if target.starts_with("/api/rss") {
+                    *rss_h.lock().unwrap() += 1;
+                    let body = r#"<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><item><title>RSS Item</title><description>From Azuriom</description></item></channel></rss>"#;
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                }
+            }
+        });
+
+        let http = reqwest::Client::builder().no_proxy().build().unwrap();
+        let state = LauncherState::with_http_client(http);
+        let base = format!("http://{addr}");
+        let meta = LauncherMeta {
+            name: "centralcorp".to_string(),
+            product_name: "CentralCorp".to_string(),
+            version: "5.0.0".to_string(),
+            env: "panel".to_string(),
+            settings_url: base.clone(),
+            user_subpath: String::new(),
+            platform: "linux".to_string(),
+            arch: "x64".to_string(),
+            is_dev: false,
+            data_root: "/tmp".to_string(),
+            repository: None,
+        };
+
+        // 1. Splash bootstrap call -> 1 HTTP GET with ?include=news,mods
+        let cfg1 = fetch_remote_config_inner(&state, &meta, false).await.unwrap();
+        assert!(*saw_include.lock().unwrap());
+        assert_eq!(*api_hits.lock().unwrap(), 1);
+        assert!(cfg1.get("included_news").is_none());
+        assert!(cfg1.get("included_mods").is_none());
+
+        // 2. Main window call right after splash -> 0 extra HTTP GETs!
+        let cfg2 = fetch_remote_config_inner(&state, &meta, false).await.unwrap();
+        assert_eq!(*api_hits.lock().unwrap(), 1);
+        assert_eq!(cfg1, cfg2);
+
+        // 3. Force refresh -> sends If-None-Match and receives 304 Not Modified!
+        let cfg3 = fetch_remote_config_inner(&state, &meta, true).await.unwrap();
+        assert!(*saw_if_none_match.lock().unwrap());
+        assert_eq!(*api_hits.lock().unwrap(), 2);
+        assert_eq!(cfg1, cfg3);
+
+        // 4. Panel news -> served from bootstrap cache with 0 HTTP calls!
+        let panel_news = fetch_news_inner(&state, &meta, Some("panel"), None, None)
+            .await
+            .unwrap();
+        assert_eq!(panel_news.len(), 1);
+        assert_eq!(panel_news[0].title, "Bootstrap News");
+        assert_eq!(*news_hits.lock().unwrap(), 0);
+
+        // 5. Merged "both" news -> combines cached Panel news + 1 RSS HTTP call (0 Panel HTTP calls)!
+        let both_news = fetch_news_inner(&state, &meta, Some("both"), None, Some(&base))
+            .await
+            .unwrap();
+        assert_eq!(both_news.len(), 2);
+        assert_eq!(both_news[0].title, "Bootstrap News");
+        assert_eq!(*news_hits.lock().unwrap(), 0);
+        assert_eq!(*rss_hits.lock().unwrap(), 1);
+
+        // 6. Optional mods manifest -> served from bootstrap cache with 0 HTTP calls!
+        let mods_manifest = get_or_fetch_mods_manifest(
+            &state,
+            "survival",
+            &format!("{base}/utils/instances/survival/mods"),
+            5,
+        )
+        .await
+        .unwrap();
+        assert_eq!(mods_manifest["optionalMods"][0], "sodium.jar");
+        assert_eq!(*mods_hits.lock().unwrap(), 0);
 
         server.abort();
     }

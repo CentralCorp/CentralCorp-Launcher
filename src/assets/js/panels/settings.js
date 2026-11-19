@@ -11,10 +11,14 @@ import {
     config as configUtil,
     database,
     changePanel,
+    escapeHtml,
     addAccount,
     accountSelect,
     headplayer,
     normalizeAccount,
+    ensureFreshMicrosoftAccount,
+    isInstanceModded,
+    resolveInstanceRam,
     getActiveInstance,
     Slider,
     showLoadingOverlay,
@@ -30,12 +34,15 @@ import {
     toggleOptionalMod,
     uploadPlayerSkin,
     setMicrosoftCape,
+    setCloseBehavior,
 } from '../utils/tauri-bridge.js';
 import {
     MinecraftSkinViewer3D,
-    getActiveMicrosoftSkin,
+    resolveAccountSkinSources,
+    resolveAccountAvatarUrl,
     getActiveMicrosoftCape,
     renderMinecraftCapePreviewDataUrl,
+    invalidateSkinCache,
 } from '../utils/skin-renderer.js';
 
 function fileToBase64(file) {
@@ -51,38 +58,98 @@ function fileToBase64(file) {
     });
 }
 
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = String(text ?? '');
-    return div.innerHTML;
-}
-
 class Settings {
     static id = 'settings';
 
     async init(config) {
         this.config = config;
-        this.meta = await getLauncherMeta();
-        this.database = await new database().init();
+        const [meta, db] = await Promise.all([getLauncherMeta(), new database().init()]);
+        this.meta = meta;
+        this.database = db;
         this.skinViewer3D = null;
         this.selectedSlimModel = false;
+        this._isPanelActive = false;
+        this._ramDirty = true;
+        this._modsDirty = true;
+        this._skinDirty = true;
 
         await this.initSettingsDefault();
         this.initTab();
         this.initAccount();
-        await this.initRam();
         await this.initLauncherSettings();
-        await this.initOptionalMods();
         this.initSkinStudioControls();
         this.initSkinDropzone();
+        await this.updateModsTabVisibility();
 
-        window.addEventListener('instance-changed', () => {
-            this.initOptionalMods();
+        // Lazy hydration: RAM, Optional Mods, and 3D Skin Studio only run when Settings is opened
+        window.addEventListener('panel-changed', (e) => {
+            const activePanel = e.detail?.panel;
+            if (activePanel === 'settings') {
+                this._isPanelActive = true;
+                this.refreshDirtySections();
+                this.updateViewerAnimationState();
+            } else {
+                this._isPanelActive = false;
+                if (this.skinViewer3D) {
+                    this.skinViewer3D.stop();
+                }
+            }
+        });
+
+        window.addEventListener('instance-changed', async () => {
+            this._ramDirty = true;
+            this._modsDirty = true;
+            await this.updateModsTabVisibility();
+            if (this._isPanelActive) {
+                this.refreshDirtySections();
+            }
+        });
+
+        window.addEventListener('instance-launched-closed', () => {
+            this._modsDirty = true;
+            if (this._isPanelActive) {
+                this.refreshDirtySections();
+            }
         });
 
         window.addEventListener('account-changed', () => {
-            this.initPreviewSkin();
+            this._skinDirty = true;
+            if (this._isPanelActive) {
+                this.refreshDirtySections();
+            }
         });
+    }
+
+    async refreshDirtySections() {
+        const tasks = [];
+        if (this._ramDirty) {
+            this._ramDirty = false;
+            tasks.push(this.initRam());
+        }
+        if (this._modsDirty) {
+            this._modsDirty = false;
+            tasks.push(this.initOptionalMods());
+        }
+        if (this._skinDirty) {
+            this._skinDirty = false;
+            tasks.push(this.initPreviewSkin());
+        }
+        if (tasks.length) {
+            await Promise.all(tasks);
+        }
+    }
+
+    async updateModsTabVisibility() {
+        const modsTabBtn = document.getElementById('mods-tab');
+        if (!modsTabBtn) return;
+
+        const inst = await getActiveInstance(this.config, this.database);
+        const modded = isInstanceModded(inst, this.config);
+        modsTabBtn.style.display = modded ? '' : 'none';
+
+        if (!modded && modsTabBtn.classList.contains('active-tab-btn')) {
+            document.querySelector('.default-tab-btn')?.click();
+        }
     }
 
     async getSelectedAccount() {
@@ -93,7 +160,7 @@ class Settings {
     }
 
     // -----------------------------------------------------------------------
-    // 3D Skin + Cape Studio (Microsoft Interactive 3D + Azuriom skin3d iframe)
+    // Unified 3D Skin + Cape Studio (Microsoft + Azuriom skin-api)
     // -----------------------------------------------------------------------
 
     initSkinStudioControls() {
@@ -106,7 +173,7 @@ class Settings {
         if (slimBtn) slimBtn.textContent = t('skin_model_slim');
         if (rotateHint) rotateHint.textContent = t('skin_drag_rotate');
         if (capesTitle) {
-            capesTitle.innerHTML = `<i class="fas fa-award"></i><span>${t('official_capes')}</span>`;
+            capesTitle.innerHTML = `<i class="fas fa-award"></i><span>${escapeHtml(t('official_capes'))}</span>`;
         }
 
         if (classicBtn && slimBtn) {
@@ -224,19 +291,41 @@ class Settings {
     }
 
     async processSkinChange(file) {
-        const account = await this.getSelectedAccount();
+        let account = await this.getSelectedAccount();
         if (!account) return;
 
+        const isMicrosoft = account.meta?.type === 'Microsoft';
+        if (!isMicrosoft && this.config?.skin_api === false) {
+            this.showSkinStatus(t('unavailable'), true);
+            return;
+        }
+
         try {
-            const pngBase64 = await fileToBase64(file);
-            const azauth = await configUtil.getAzAuthUrl(this.config);
-            const updatedRaw = await uploadPlayerSkin(
+            if (isMicrosoft) {
+                account = await ensureFreshMicrosoftAccount(
+                    account,
+                    this.config,
+                    this.meta,
+                    this.database
+                );
+            }
+
+            const [pngBase64, azauth, panelBaseUrl] = await Promise.all([
+                fileToBase64(file),
+                configUtil.getAzAuthUrl(this.config),
+                this.meta.env !== 'azuriom' ? configUtil.getPanelBaseUrl() : Promise.resolve(null),
+            ]);
+
+            const updatedRaw = await uploadPlayerSkin({
                 account,
-                azauth || null,
-                pngBase64,
-                this.selectedSlimModel
-            );
+                base_url: azauth || null,
+                panel_base_url: panelBaseUrl,
+                png_base64: pngBase64,
+                slim: this.selectedSlimModel,
+            });
+
             const updated = normalizeAccount(updatedRaw);
+            invalidateSkinCache(updated);
             await this.database.update(updated, 'accounts');
             await addAccount(updated);
             await headplayer(updated);
@@ -254,8 +343,10 @@ class Settings {
 
         const title = document.querySelector('.player-skin-title');
         const skinTabBtn = document.getElementById('skin-tab');
-        const iframe = document.getElementById('skinRender2');
         const msWrap = document.getElementById('msSkinViewerWrap');
+        const fallbackWrap = document.getElementById('skin2dFallbackWrap');
+        const fallbackImg = document.getElementById('skin2dFallbackImg');
+        const uploadContainer = document.getElementById('skinUploadContainer');
         const capesSection = document.getElementById('capesSection');
 
         if (title) {
@@ -263,39 +354,75 @@ class Settings {
         }
 
         const isMicrosoft = account.meta?.type === 'Microsoft';
+        const azSkinApiAllowed = this.config?.skin_api !== false;
+
         if (skinTabBtn) {
-            skinTabBtn.innerHTML = `<i class="fas fa-tshirt"></i><span>${isMicrosoft ? t('skin_and_capes') : t('skin')}</span>`;
+            skinTabBtn.innerHTML = `<i class="fas fa-tshirt"></i><span>${escapeHtml(isMicrosoft ? t('skin_and_capes') : t('skin'))}</span>`;
         }
 
+        // Respect `skin_api` option for Azuriom accounts while keeping Mojang upload enabled for Microsoft
+        if (uploadContainer) {
+            uploadContainer.style.display = isMicrosoft || azSkinApiAllowed ? '' : 'none';
+        }
+
+        const azauth = !isMicrosoft && azSkinApiAllowed
+            ? await configUtil.getAzAuthUrl(this.config)
+            : '';
+        const skinInfo = resolveAccountSkinSources(account, azauth);
+
         if (isMicrosoft) {
-            if (iframe) {
-                iframe.style.display = 'none';
-                iframe.src = '';
-            }
+            if (fallbackWrap) fallbackWrap.style.display = 'none';
             if (msWrap) msWrap.style.display = 'flex';
             if (capesSection) capesSection.style.display = 'block';
 
-            const activeSkin = getActiveMicrosoftSkin(account);
             const activeCape = getActiveMicrosoftCape(account);
-            this.selectSkinModel(Boolean(activeSkin?.slim));
+            this.selectSkinModel(skinInfo.slim);
 
             if (this.skinViewer3D) {
-                await this.skinViewer3D.setSkin(activeSkin?.url || null, Boolean(activeSkin?.slim));
+                await this.skinViewer3D.setSkin(skinInfo.primaryUrl, skinInfo.slim, {
+                    allowProceduralFallback: true,
+                });
                 await this.skinViewer3D.setCape(activeCape?.url || null);
                 this.updateViewerAnimationState();
             }
 
             await this.renderCapesStrip(account);
+            return;
+        }
+
+        // Azuriom account: render interactive 3D studio when full 64x64/64x32 skin exists,
+        // or gracefully fall back to crisp 2D avatar card when no custom skin is uploaded yet.
+        if (capesSection) capesSection.style.display = 'none';
+        if (this.skinViewer3D) {
+            await this.skinViewer3D.setCape(null);
+        }
+
+        let rendered3D = false;
+        if (this.skinViewer3D && skinInfo.primaryUrl) {
+            this.selectSkinModel(skinInfo.slim);
+            rendered3D = await this.skinViewer3D.setSkin(skinInfo.primaryUrl, skinInfo.slim, {
+                fallbackUrls: skinInfo.fallbackUrls,
+                allowProceduralFallback: false,
+            });
+        }
+
+        if (rendered3D) {
+            if (fallbackWrap) fallbackWrap.style.display = 'none';
+            if (msWrap) msWrap.style.display = 'flex';
+            this.updateViewerAnimationState();
         } else {
             if (this.skinViewer3D) this.skinViewer3D.stop();
             if (msWrap) msWrap.style.display = 'none';
-            if (capesSection) capesSection.style.display = 'none';
-            if (iframe) {
-                iframe.style.display = 'block';
-                const azauth = await configUtil.getAzAuthUrl(this.config);
-                if (azauth) {
-                    iframe.src = `${azauth}skin3d/3d-api/skin-api/${encodeURIComponent(account.name)}?t=${Date.now()}`;
-                }
+            if (fallbackWrap && fallbackImg) {
+                const avatarUrl = await resolveAccountAvatarUrl(account, azauth);
+                fallbackImg.alt = account.name || '';
+                fallbackImg.onerror = () => {
+                    if (!fallbackImg.src.endsWith('setve.png')) {
+                        fallbackImg.src = './assets/images/default/setve.png';
+                    }
+                };
+                fallbackImg.src = avatarUrl;
+                fallbackWrap.style.display = 'flex';
             }
         }
     }
@@ -325,7 +452,7 @@ class Settings {
             card.className = `cape-card${isEquipped ? ' active' : ''}`;
             card.title = cape.alias || 'Cape';
             card.innerHTML = `
-                <img class="cape-card-preview" alt="${escapeHtml(cape.alias || 'Cape')}" />
+                <img class="cape-card-preview" alt="${escapeHtml(cape.alias || 'Cape')}" decoding="async" />
                 <div class="cape-card-label">${escapeHtml(cape.alias || 'Cape')}</div>
             `;
 
@@ -347,9 +474,15 @@ class Settings {
 
     async applyMicrosoftCape(account, capeIdOrNull) {
         try {
-            const updatedProfile = await setMicrosoftCape(account.access_token, capeIdOrNull);
+            const freshAccount = await ensureFreshMicrosoftAccount(
+                account,
+                this.config,
+                this.meta,
+                this.database
+            );
+            const updatedProfile = await setMicrosoftCape(freshAccount.access_token, capeIdOrNull);
             const updatedAccount = normalizeAccount({
-                ...account,
+                ...freshAccount,
                 profile: updatedProfile,
             });
             await this.database.update(updatedAccount, 'accounts');
@@ -369,7 +502,14 @@ class Settings {
     updateViewerAnimationState() {
         if (!this.skinViewer3D) return;
         const skinTabBtn = document.getElementById('skin-tab');
-        const isSkinTabActive = skinTabBtn && skinTabBtn.classList.contains('active-tab-btn');
+        const msWrap = document.getElementById('msSkinViewerWrap');
+        const isSkinTabActive = Boolean(
+            this._isPanelActive &&
+                skinTabBtn &&
+                skinTabBtn.classList.contains('active-tab-btn') &&
+                msWrap &&
+                msWrap.style.display !== 'none'
+        );
         if (isSkinTabActive) {
             this.skinViewer3D.start();
         } else {
@@ -409,6 +549,7 @@ class Settings {
 
                 const remaining = await this.database.getAll('accounts');
                 if (!remaining.length) {
+                    if (this.skinViewer3D) this.skinViewer3D.stop();
                     await this.database.update({ uuid: '1234' }, 'accounts-selected');
                     const cancelLogin = document.querySelector('.cancel-login');
                     if (cancelLogin) cancelLogin.style.display = 'none';
@@ -422,7 +563,6 @@ class Settings {
                         await this.database.update({ uuid: '1234', selected: nextAcc.uuid }, 'accounts-selected');
                         await accountSelect(nextAcc.uuid, nextAcc);
                         window.dispatchEvent(new CustomEvent('account-changed', { detail: { account: nextAcc } }));
-                        await this.initPreviewSkin();
                     }
                 }
                 return;
@@ -436,7 +576,6 @@ class Settings {
                     await this.database.update({ uuid: '1234', selected: targetUuid }, 'accounts-selected');
                     await accountSelect(targetUuid, acc);
                     window.dispatchEvent(new CustomEvent('account-changed', { detail: { account: acc } }));
-                    await this.initPreviewSkin();
                 } finally {
                     hideLoadingOverlay();
                 }
@@ -444,6 +583,7 @@ class Settings {
         });
 
         document.querySelector('.add-account').addEventListener('click', () => {
+            if (this.skinViewer3D) this.skinViewer3D.stop();
             const cancelBtn = document.querySelector('.cancel-login');
             if (cancelBtn) cancelBtn.style.display = 'inline-block';
             changePanel('login');
@@ -451,50 +591,59 @@ class Settings {
     }
 
     // -----------------------------------------------------------------------
-    // System Memory & RAM Slider
+    // System Memory & Per-Instance RAM Slider
     // -----------------------------------------------------------------------
 
     async initRam() {
-        const ramDatabase = (await this.database.get('1234', 'ram'))?.value;
-        let totalMem = 8;
-        let freeMem = 4;
+        const [inst, mem] = await Promise.all([
+            getActiveInstance(this.config, this.database),
+            getSystemMemory().catch((err) => {
+                console.warn('Fallback RAM metrics:', err);
+                return { total_gb: 8, free_gb: 4 };
+            }),
+        ]);
 
-        try {
-            const mem = await getSystemMemory();
-            if (mem && mem.total_gb > 0) {
-                totalMem = mem.total_gb;
-                freeMem = mem.free_gb;
-            }
-        } catch (err) {
-            console.warn('Fallback RAM metrics:', err);
+        const totalMem = mem?.total_gb > 0 ? mem.total_gb : 8;
+        const freeMem = mem?.free_gb >= 0 ? mem.free_gb : 4;
+
+        const ramTitle = document.getElementById('ram-title');
+        if (ramTitle) {
+            const multiCount = Array.isArray(this.config?.instances) ? this.config.instances.length : 1;
+            ramTitle.textContent =
+                multiCount > 1 && inst?.name
+                    ? `${t('ram_settings')} — ${inst.name}`
+                    : t('ram_settings');
         }
 
         document.getElementById('total-ram').textContent = `${totalMem} Go RAM`;
         document.getElementById('free-ram').textContent = `${freeMem} Go ${t('free_ram')}`;
 
-        const maxAllowed = Math.max(2, Math.round(((80 * totalMem) / 100) * 2) / 2);
+        const resolved = await resolveInstanceRam(inst, this.config, this.database, totalMem);
         const sliderDiv = document.querySelector('.memory-slider');
-        sliderDiv.setAttribute('max', String(maxAllowed));
+        if (!sliderDiv) return;
 
-        const defaultMin = Math.min(maxAllowed - 0.5, Number(this.config.ram_min) || 2);
-        const defaultMax = Math.min(maxAllowed, Math.max(defaultMin + 0.5, Number(this.config.ram_max) || 4));
-        const ram = ramDatabase || { ramMin: defaultMin, ramMax: defaultMax };
+        sliderDiv.setAttribute('min', String(resolved.minBound));
+        sliderDiv.setAttribute('max', String(resolved.maxBound));
 
-        const clampedMin = Math.max(0.5, Math.min(maxAllowed - 0.5, parseFloat(ram.ramMin) || 2));
-        const clampedMax = Math.max(clampedMin + 0.5, Math.min(maxAllowed, parseFloat(ram.ramMax) || 4));
-
-        const slider = new Slider('.memory-slider', clampedMin, clampedMax);
+        const slider = new Slider('.memory-slider', resolved.ramMin, resolved.ramMax);
 
         const minSpan = document.querySelector('.slider-touch-left span');
         const maxSpan = document.querySelector('.slider-touch-right span');
 
-        minSpan.setAttribute('value', `${clampedMin} Go`);
-        maxSpan.setAttribute('value', `${clampedMax} Go`);
+        if (minSpan) minSpan.setAttribute('value', `${resolved.ramMin} Go`);
+        if (maxSpan) maxSpan.setAttribute('value', `${resolved.ramMax} Go`);
 
         slider.on('change', (min, max) => {
-            minSpan.setAttribute('value', `${min} Go`);
-            maxSpan.setAttribute('value', `${max} Go`);
-            this.database.update({ uuid: '1234', ramMin: `${min}`, ramMax: `${max}` }, 'ram');
+            if (minSpan) minSpan.setAttribute('value', `${min} Go`);
+            if (maxSpan) maxSpan.setAttribute('value', `${max} Go`);
+            this.database.update(
+                {
+                    uuid: resolved.ramKey,
+                    ramMin: String(min),
+                    ramMax: String(max),
+                },
+                'ram'
+            );
         });
     }
 
@@ -504,15 +653,14 @@ class Settings {
 
     getModsUrlForInstance(instance) {
         if (instance?.mods_url) return instance.mods_url;
-        const base = this.meta.settings_url.endsWith('/')
-            ? this.meta.settings_url
-            : `${this.meta.settings_url}/`;
+        const rawSettings = this.meta?.settings_url || '';
+        const base = rawSettings.endsWith('/') ? rawSettings : `${rawSettings}/`;
         if (instance?.slug && instance.slug !== 'default') {
-            return this.meta.env === 'azuriom'
+            return this.meta?.env === 'azuriom'
                 ? `${base}api/centralcorp/instances/${instance.slug}/mods`
                 : `${base}utils/instances/${instance.slug}/mods`;
         }
-        return this.meta.env === 'azuriom' ? `${base}api/centralcorp/mods` : `${base}utils/mods`;
+        return this.meta?.env === 'azuriom' ? `${base}api/centralcorp/mods` : `${base}utils/mods`;
     }
 
     async initOptionalMods() {
@@ -522,6 +670,11 @@ class Settings {
         modsListElement.innerHTML = '';
 
         const inst = await getActiveInstance(this.config, this.database);
+        if (!isInstanceModded(inst, this.config)) {
+            await this.updateModsTabVisibility();
+            return;
+        }
+
         const slug = inst?.slug || 'default';
         if (modsTitleElement) {
             const multiCount = Array.isArray(this.config?.instances) ? this.config.instances.length : 1;
@@ -546,12 +699,7 @@ class Settings {
                 return;
             }
 
-            const anyInstalled = mods.some((m) => m.installed);
-            if (!anyInstalled) {
-                this.displayEmptyModsMessage(modsListElement);
-                return;
-            }
-
+            const fragment = document.createDocumentFragment();
             for (const mod of mods) {
                 const modElement = document.createElement('div');
                 const safeId = `opt-mod-${slug}-${mod.file}`;
@@ -572,10 +720,14 @@ class Settings {
                     const modName = mod.name || mod.file;
                     const modDescription = mod.description || t('no_mod_description');
                     const isRecommended = Boolean(mod.recommanded || mod.recommended);
+                    const safeIcon =
+                        mod.icon && /^https?:\/\//i.test(String(mod.icon).trim())
+                            ? String(mod.icon).trim()
+                            : null;
 
                     modElement.innerHTML = `
                         <div class="mods-container">
-                            ${mod.icon ? `<img src="${escapeHtml(mod.icon)}" class="mods-icon" alt="${escapeHtml(modName)} logo">` : ''}
+                            ${safeIcon ? `<img src="${escapeHtml(safeIcon)}" class="mods-icon" alt="${escapeHtml(modName)} logo" loading="lazy" decoding="async">` : ''}
                             <div class="mods-container-text">
                                 <div class="mods-container-name">
                                     <h2>${escapeHtml(modName)}</h2>
@@ -593,19 +745,30 @@ class Settings {
                         <hr>`;
                 }
 
+                const iconImg = modElement.querySelector('img.mods-icon');
+                if (iconImg) {
+                    iconImg.onerror = () => {
+                        iconImg.remove();
+                    };
+                }
+
                 const checkbox = modElement.querySelector('input[type="checkbox"]');
                 checkbox.addEventListener('change', async (e) => {
                     const desired = e.target.checked;
+                    checkbox.disabled = true;
                     try {
                         await toggleOptionalMod(gameRoot, slug, mod.file, desired);
                     } catch (err) {
                         console.error('Failed to toggle mod:', err);
                         e.target.checked = !desired;
+                    } finally {
+                        checkbox.disabled = false;
                     }
                 });
 
-                modsListElement.appendChild(modElement);
+                fragment.appendChild(modElement);
             }
+            modsListElement.appendChild(fragment);
         } catch (err) {
             console.warn('Could not load optional mods:', err);
             this.displayEmptyModsMessage(modsListElement);
@@ -634,6 +797,8 @@ class Settings {
             },
         };
 
+        setCloseBehavior(settingsLauncher.launcher.close).catch(() => {});
+
         const closeLauncher = document.getElementById('launcher-close');
         const closeAll = document.getElementById('launcher-close-all');
         const openLauncher = document.getElementById('launcher-open');
@@ -646,29 +811,18 @@ class Settings {
             openLauncher.checked = true;
         }
 
-        closeLauncher.addEventListener('change', () => {
-            openLauncher.checked = false;
-            closeAll.checked = false;
-            closeLauncher.checked = true;
-            settingsLauncher.launcher.close = 'close-launcher';
+        const applyChoice = (choice) => {
+            closeLauncher.checked = choice === 'close-launcher';
+            closeAll.checked = choice === 'close-all';
+            openLauncher.checked = choice === 'open-launcher';
+            settingsLauncher.launcher.close = choice;
             this.database.update(settingsLauncher, 'launcher');
-        });
+            setCloseBehavior(choice).catch(() => {});
+        };
 
-        closeAll.addEventListener('change', () => {
-            closeLauncher.checked = false;
-            openLauncher.checked = false;
-            closeAll.checked = true;
-            settingsLauncher.launcher.close = 'close-all';
-            this.database.update(settingsLauncher, 'launcher');
-        });
-
-        openLauncher.addEventListener('change', () => {
-            closeLauncher.checked = false;
-            closeAll.checked = false;
-            openLauncher.checked = true;
-            settingsLauncher.launcher.close = 'open-launcher';
-            this.database.update(settingsLauncher, 'launcher');
-        });
+        closeLauncher.addEventListener('change', () => applyChoice('close-launcher'));
+        closeAll.addEventListener('change', () => applyChoice('close-all'));
+        openLauncher.addEventListener('change', () => applyChoice('open-launcher'));
     }
 
     initTab() {
@@ -701,14 +855,14 @@ class Settings {
             }
         });
 
-        document.getElementById('accounts-tab').innerHTML = `<i class="fas fa-user"></i><span>${t('accounts')}</span>`;
-        document.getElementById('ram-tab').innerHTML = `<i class="fab fa-java"></i><span>${t('ram_settings')}</span>`;
-        document.getElementById('launch-tab').innerHTML = `<i class="fas fa-rocket"></i><span>${t('launcher_loading')}</span>`;
-        document.getElementById('mods-tab').innerHTML = `<i class="fas fa-puzzle-piece"></i><span>${t('optional_mods')}</span>`;
-        document.getElementById('skin-tab').innerHTML = `<i class="fas fa-tshirt"></i><span>${t('skin')}</span>`;
-        document.getElementById('save-tab').innerHTML = `<i class="fas fa-save"></i><span>${t('save')}</span>`;
+        document.getElementById('accounts-tab').innerHTML = `<i class="fas fa-user"></i><span>${escapeHtml(t('accounts'))}</span>`;
+        document.getElementById('ram-tab').innerHTML = `<i class="fab fa-java"></i><span>${escapeHtml(t('ram_settings'))}</span>`;
+        document.getElementById('launch-tab').innerHTML = `<i class="fas fa-rocket"></i><span>${escapeHtml(t('launcher_loading'))}</span>`;
+        document.getElementById('mods-tab').innerHTML = `<i class="fas fa-puzzle-piece"></i><span>${escapeHtml(t('optional_mods'))}</span>`;
+        document.getElementById('skin-tab').innerHTML = `<i class="fas fa-tshirt"></i><span>${escapeHtml(t('skin'))}</span>`;
+        document.getElementById('save-tab').innerHTML = `<i class="fas fa-save"></i><span>${escapeHtml(t('save'))}</span>`;
 
-        document.getElementById('add-account-btn').innerHTML = `<i class="fas fa-plus"></i> <span>${t('add_account')}</span>`;
+        document.getElementById('add-account-btn').innerHTML = `<i class="fas fa-plus"></i> <span>${escapeHtml(t('add_account'))}</span>`;
         document.getElementById('ram-title').textContent = t('ram_settings');
         document.getElementById('ram-info').innerHTML = t('ram_detailed_info');
         document.getElementById('total-ram').textContent = t('total_ram');
@@ -732,60 +886,27 @@ class Settings {
     }
 
     async initSettingsDefault() {
-        if (!(await this.database.getAll('accounts-selected')).length) {
-            await this.database.add({ uuid: '1234' }, 'accounts-selected');
-        }
+        const defaultInst =
+            (this.config?.instances || []).find((i) => i.is_default) ||
+            (this.config?.instances || [])[0];
 
-        if (!(await this.database.getAll('java-path')).length) {
-            await this.database.add({ uuid: '1234', path: false }, 'java-path');
-        }
+        const defaults = [
+            ['accounts-selected', { uuid: '1234' }],
+            ['java-path', { uuid: '1234', path: false }],
+            ['java-args', { uuid: '1234', args: [] }],
+            ['launcher', { uuid: '1234', launcher: { close: 'close-launcher' } }],
+            ['profile', { uuid: '1234', selectedInstance: defaultInst?.slug || null }],
+            ['screen', { uuid: '1234', screen: { width: '<auto>', height: '<auto>' } }],
+        ];
 
-        if (!(await this.database.getAll('java-args')).length) {
-            await this.database.add({ uuid: '1234', args: [] }, 'java-args');
-        }
-
-        if (!(await this.database.getAll('launcher')).length) {
-            await this.database.add(
-                {
-                    uuid: '1234',
-                    launcher: {
-                        close: 'close-launcher',
-                    },
-                },
-                'launcher'
-            );
-        }
-
-        if (!(await this.database.getAll('profile')).length) {
-            const defaultInst =
-                (this.config?.instances || []).find((i) => i.is_default) ||
-                (this.config?.instances || [])[0];
-            await this.database.add(
-                {
-                    uuid: '1234',
-                    selectedInstance: defaultInst?.slug || null,
-                },
-                'profile'
-            );
-        }
-
-        if (!(await this.database.getAll('ram')).length) {
-            await this.database.add(
-                {
-                    uuid: '1234',
-                    ramMin: String(this.config?.ram_min ?? 2),
-                    ramMax: String(this.config?.ram_max ?? 4),
-                },
-                'ram'
-            );
-        }
-
-        if (!(await this.database.getAll('screen')).length) {
-            await this.database.add(
-                { uuid: '1234', screen: { width: '<auto>', height: '<auto>' } },
-                'screen'
-            );
-        }
+        await Promise.all(
+            defaults.map(async ([storeName, initialValue]) => {
+                const existing = await this.database.get('1234', storeName);
+                if (!existing) {
+                    await this.database.add(initialValue, storeName);
+                }
+            })
+        );
     }
 }
 

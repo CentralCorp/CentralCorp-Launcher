@@ -6,6 +6,10 @@
 'use strict';
 
 const DEFAULT_STEVE_AVATAR = './assets/images/default/setve.png';
+const IMAGE_PROMISE_CACHE = new Map();
+const HEAD_DATA_URL_CACHE = new Map();
+const CAPE_DATA_URL_CACHE = new Map();
+const SKIN_BUST_TOKEN_BY_KEY = new Map();
 
 function normalizeTextureSource(src) {
     if (!src || typeof src !== 'string') return null;
@@ -21,21 +25,94 @@ function normalizeTextureSource(src) {
     return `data:image/png;base64,${trimmed}`;
 }
 
-function loadImage(src) {
-    return new Promise((resolve, reject) => {
-        const normalized = normalizeTextureSource(src);
-        if (!normalized) {
-            reject(new Error('Empty texture source'));
-            return;
+function getSkinBustToken(account) {
+    if (!account) return null;
+    if (typeof account === 'string') {
+        return SKIN_BUST_TOKEN_BY_KEY.get(account.toLowerCase()) || null;
+    }
+    const uuidKey = String(account.uuid || '').toLowerCase();
+    const nameKey = String(account.name || '').toLowerCase();
+    const idKey = String(account?.user_info?.id || '').toLowerCase();
+    return (
+        (uuidKey && SKIN_BUST_TOKEN_BY_KEY.get(uuidKey)) ||
+        (nameKey && SKIN_BUST_TOKEN_BY_KEY.get(nameKey)) ||
+        (idKey && SKIN_BUST_TOKEN_BY_KEY.get(idKey)) ||
+        null
+    );
+}
+
+function appendBustToken(url, token) {
+    if (!url || !token || url.startsWith('data:')) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}v=${token}`;
+}
+
+/**
+ * Invalidates cached skin/avatar textures for an account right after uploading a new skin.
+ */
+export function invalidateSkinCache(accountOrName) {
+    const token = Date.now();
+    if (!accountOrName) {
+        IMAGE_PROMISE_CACHE.clear();
+        HEAD_DATA_URL_CACHE.clear();
+        return;
+    }
+
+    const keys = [];
+    if (typeof accountOrName === 'string') {
+        keys.push(accountOrName.toLowerCase());
+    } else if (typeof accountOrName === 'object') {
+        if (accountOrName.uuid) keys.push(String(accountOrName.uuid).toLowerCase());
+        if (accountOrName.name) keys.push(String(accountOrName.name).toLowerCase());
+        if (accountOrName?.user_info?.id) keys.push(String(accountOrName.user_info.id).toLowerCase());
+    }
+
+    for (const k of keys) {
+        if (k) SKIN_BUST_TOKEN_BY_KEY.set(k, token);
+    }
+
+    for (const cachedUrl of Array.from(IMAGE_PROMISE_CACHE.keys())) {
+        if (cachedUrl.startsWith('data:') || keys.some((k) => k && cachedUrl.toLowerCase().includes(encodeURIComponent(k)))) {
+            IMAGE_PROMISE_CACHE.delete(cachedUrl);
+            HEAD_DATA_URL_CACHE.delete(cachedUrl);
         }
+    }
+}
+
+function loadImage(src) {
+    const normalized = normalizeTextureSource(src);
+    if (!normalized) {
+        return Promise.reject(new Error('Empty texture source'));
+    }
+
+    const cached = IMAGE_PROMISE_CACHE.get(normalized);
+    if (cached) {
+        return cached;
+    }
+
+    const promise = new Promise((resolve, reject) => {
         const img = new Image();
         if (/^https?:\/\//i.test(normalized)) {
             img.crossOrigin = 'anonymous';
         }
         img.onload = () => resolve(img);
-        img.onerror = (err) => reject(err);
+        img.onerror = (err) => {
+            IMAGE_PROMISE_CACHE.delete(normalized);
+            reject(err);
+        };
         img.src = normalized;
     });
+
+    // Bound cache size for data URIs while caching HTTP URLs across renders
+    if (!normalized.startsWith('data:') || IMAGE_PROMISE_CACHE.size < 64) {
+        IMAGE_PROMISE_CACHE.set(normalized, promise);
+    }
+    return promise;
+}
+
+function isValidFullSkinDimensions(img) {
+    if (!img || !img.width || !img.height) return false;
+    return img.width >= 64 && img.width % 64 === 0 && (img.height === img.width || img.height * 2 === img.width);
 }
 
 /**
@@ -43,7 +120,13 @@ function loadImage(src) {
  * Crops face (8,8,8,8) + hat layer (40,8,8,8) with nearest-neighbor scaling.
  */
 export async function renderMinecraftHeadDataUrl(skinBase64OrUrl) {
-    const img = await loadImage(skinBase64OrUrl);
+    const normalized = normalizeTextureSource(skinBase64OrUrl);
+    if (!normalized) throw new Error('Empty skin source');
+
+    const cached = HEAD_DATA_URL_CACHE.get(normalized);
+    if (cached) return cached;
+
+    const img = await loadImage(normalized);
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
@@ -56,7 +139,11 @@ export async function renderMinecraftHeadDataUrl(skinBase64OrUrl) {
     // Hat / outer head front: (40, 8, 8, 8)
     ctx.drawImage(img, 40 * scale, 8 * scale, 8 * scale, 8 * scale, 0, 0, 64, 64);
 
-    return canvas.toDataURL('image/png');
+    const dataUrl = canvas.toDataURL('image/png');
+    if (!normalized.startsWith('data:') || HEAD_DATA_URL_CACHE.size < 64) {
+        HEAD_DATA_URL_CACHE.set(normalized, dataUrl);
+    }
+    return dataUrl;
 }
 
 /**
@@ -73,7 +160,7 @@ export function getActiveMicrosoftSkin(account) {
             };
         }
     }
-    if (account?.user_properties) {
+    if (account?.user_properties && account.user_properties !== '{}') {
         try {
             const parsed = JSON.parse(account.user_properties);
             const texProp = Array.isArray(parsed)
@@ -97,6 +184,60 @@ export function getActiveMicrosoftSkin(account) {
 }
 
 /**
+ * Resolves skin candidates + model variant for any account (Microsoft or Azuriom).
+ */
+export function resolveAccountSkinSources(account, azauthUrl = '') {
+    if (!account) {
+        return { primaryUrl: null, fallbackUrls: [], slim: false, isMicrosoft: false };
+    }
+    const isMicrosoft = String(account?.meta?.type || '').toLowerCase() === 'microsoft';
+    if (isMicrosoft) {
+        const msSkin = getActiveMicrosoftSkin(account);
+        return {
+            primaryUrl: msSkin?.url || null,
+            fallbackUrls: [],
+            slim: Boolean(msSkin?.slim),
+            isMicrosoft: true,
+        };
+    }
+
+    const bust = getSkinBustToken(account);
+    const candidates = [];
+    let slim = false;
+
+    const skins = account?.profile?.skins;
+    if (Array.isArray(skins) && skins.length > 0) {
+        const active = skins.find((s) => String(s.state || '').toUpperCase() === 'ACTIVE') || skins[0];
+        slim = String(active?.variant || '').toUpperCase() === 'SLIM';
+        if (active?.base64) {
+            candidates.push(normalizeTextureSource(active.base64));
+        }
+        if (active?.url) {
+            candidates.push(appendBustToken(normalizeTextureSource(active.url), bust));
+        }
+    }
+
+    if (azauthUrl) {
+        const base = azauthUrl.endsWith('/') ? azauthUrl : `${azauthUrl}/`;
+        if (account.name) {
+            candidates.push(appendBustToken(`${base}api/skin-api/skins/${encodeURIComponent(account.name)}`, bust));
+        }
+        const userId = account?.user_info?.id;
+        if (userId && String(userId) !== String(account.name)) {
+            candidates.push(appendBustToken(`${base}api/skin-api/skins/${encodeURIComponent(String(userId))}`, bust));
+        }
+    }
+
+    const unique = Array.from(new Set(candidates.filter(Boolean)));
+    return {
+        primaryUrl: unique[0] || null,
+        fallbackUrls: unique.slice(1),
+        slim,
+        isMicrosoft: false,
+    };
+}
+
+/**
  * Resolves the active cape object from a Microsoft AuthAccount.
  */
 export function getActiveMicrosoftCape(account) {
@@ -106,7 +247,7 @@ export function getActiveMicrosoftCape(account) {
 }
 
 /**
- * Resolves a 2D avatar URL or data URL for any account (AZauth or Microsoft).
+ * Resolves a 2D avatar URL or data URL for any account (AZauth or Microsoft) without Date.now() cache spam.
  */
 export async function resolveAccountAvatarUrl(account, azauthUrl = '') {
     if (!account) return DEFAULT_STEVE_AVATAR;
@@ -127,9 +268,22 @@ export async function resolveAccountAvatarUrl(account, azauthUrl = '') {
         return DEFAULT_STEVE_AVATAR;
     }
 
+    const skins = account?.profile?.skins;
+    if (Array.isArray(skins) && skins[0]?.base64) {
+        try {
+            return await renderMinecraftHeadDataUrl(skins[0].base64);
+        } catch (_) {
+            // Fall back to skin-api face URL
+        }
+    }
+
     if (azauthUrl && account.name) {
         const base = azauthUrl.endsWith('/') ? azauthUrl : `${azauthUrl}/`;
-        return `${base}api/skin-api/avatars/face/${encodeURIComponent(account.name)}/?t=${Date.now()}`;
+        const bust = getSkinBustToken(account);
+        return appendBustToken(
+            `${base}api/skin-api/avatars/face/${encodeURIComponent(account.name)}/`,
+            bust
+        );
     }
     return DEFAULT_STEVE_AVATAR;
 }
@@ -138,7 +292,12 @@ export async function resolveAccountAvatarUrl(account, azauthUrl = '') {
  * Renders a crisp 2D preview data URL of a cape's front emblem (1, 1, 10, 16).
  */
 export async function renderMinecraftCapePreviewDataUrl(capeUrl) {
-    const img = await loadImage(capeUrl);
+    const normalized = normalizeTextureSource(capeUrl);
+    if (!normalized) throw new Error('Empty cape URL');
+    const cached = CAPE_DATA_URL_CACHE.get(normalized);
+    if (cached) return cached;
+
+    const img = await loadImage(normalized);
     const canvas = document.createElement('canvas');
     canvas.width = 40;
     canvas.height = 64;
@@ -147,7 +306,9 @@ export async function renderMinecraftCapePreviewDataUrl(capeUrl) {
 
     const scale = img.width >= 64 && img.width % 64 === 0 ? img.width / 64 : 1;
     ctx.drawImage(img, 1 * scale, 1 * scale, 10 * scale, 16 * scale, 0, 0, 40, 64);
-    return canvas.toDataURL('image/png');
+    const dataUrl = canvas.toDataURL('image/png');
+    CAPE_DATA_URL_CACHE.set(normalized, dataUrl);
+    return dataUrl;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,21 +424,30 @@ export class MinecraftSkinViewer3D {
         window.addEventListener('touchend', this.onPointerUp);
     }
 
-    async setSkin(skinUrlOrBase64, slim = false) {
+    async setSkin(skinUrlOrBase64, slim = false, options = {}) {
+        const { fallbackUrls = [], allowProceduralFallback = true } = options;
         this.slim = Boolean(slim);
-        if (!skinUrlOrBase64) {
+
+        const sources = [skinUrlOrBase64, ...fallbackUrls].filter(Boolean);
+        for (const src of sources) {
+            try {
+                const img = await loadImage(src);
+                if (isValidFullSkinDimensions(img)) {
+                    this.skinPixels = extractImagePixels(img);
+                    this.renderFrame(performance.now());
+                    return true;
+                }
+            } catch (_) {
+                // Try next candidate URL
+            }
+        }
+
+        if (allowProceduralFallback) {
             this.skinPixels = createProceduralStevePixels();
             this.renderFrame(performance.now());
-            return;
+            return true;
         }
-        try {
-            const img = await loadImage(skinUrlOrBase64);
-            this.skinPixels = extractImagePixels(img);
-        } catch (err) {
-            console.warn('Fallback to procedural Steve skin in 3D viewer:', err);
-            this.skinPixels = createProceduralStevePixels();
-        }
-        this.renderFrame(performance.now());
+        return false;
     }
 
     setSlim(slim) {

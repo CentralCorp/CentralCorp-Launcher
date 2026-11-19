@@ -23,22 +23,6 @@
     font-style: normal;
 }
 
-@font-face {
-    font-family: 'Apocalypse';
-    font-style: normal;
-    font-weight: 700;
-    font-display: swap;
-    src: local('Apocalypse Regular'), local('Apocalypse-Regular'), url('../fonts/Apocalypse-Regular.ttf') format('truetype');
-    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-    font-family: 'Iconn';
-    src: url('../fonts/icomoon.woff') format('woff');
-    font-weight: normal;
-    font-style: normal;
-}
-
 [class^="icon-"]:before,
 [class*=" icon-"]:before,
 [class^="icon-"]:after,
@@ -76,11 +60,6 @@
     content: "\e90d";
 }
 
-.icon-account-add:before {
-    font-family: "Icons";
-    content: "\e901";
-}
-
 .icon-account-delete:before {
     font-family: "Icons";
     content: "\e902";
@@ -89,14 +68,4 @@
 .icon-settings:before {
     font-family: "Icons";
     content: "\e909";
-}
-
-.icon-admin:before {
-    font-family: "Iconn";
-    content: "\e991";
-}
-
-.icon-monitor:before {
-    font-family: "Icons";
-    content: "\e90a";
 }

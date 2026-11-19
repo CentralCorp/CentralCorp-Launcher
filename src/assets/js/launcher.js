@@ -15,7 +15,9 @@ import {
     addAccount,
     accountSelect,
     initTranslations,
+    applyAccentColor,
     normalizeAccount,
+    isPermanentAzuriomAuthError,
     getActiveInstance,
     updatePlayerWidgets,
     updatePlayButtonState,
@@ -29,6 +31,8 @@ import {
     closeWindow,
     authAzuriomVerify,
     authMicrosoftRefresh,
+    syncMicrosoftPanel,
+    setCloseBehavior,
     setDiscordRpc,
 } from './utils/tauri-bridge.js';
 import Login from './panels/login.js';
@@ -38,19 +42,36 @@ import Settings from './panels/settings.js';
 class Launcher {
     async init() {
         this.initLog();
-        await initTranslations();
-        const preloadTitle = document.getElementById('preload-title');
-        if (preloadTitle) preloadTitle.textContent = t('loading');
-
         console.log('Initializing Launcher...');
-        this.meta = await getLauncherMeta();
         this.initFrame();
 
-        this.config = await config.GetConfig();
-        this.applyAccentColor();
-        this.news = await config.GetNews();
-        this.database = await new database().init();
-        this.activeInstance = await getActiveInstance(this.config, this.database);
+        // Run translations, metadata, shared IndexedDB, and memoized bootstrap config concurrently
+        const [, meta, db, cfg] = await Promise.all([
+            initTranslations().then(() => {
+                const preloadTitle = document.getElementById('preload-title');
+                if (preloadTitle) preloadTitle.textContent = t('loading');
+            }),
+            getLauncherMeta(),
+            new database().init(),
+            config.GetConfig(),
+        ]);
+
+        this.meta = meta;
+        this.database = db;
+        this.config = cfg;
+        applyAccentColor(this.config);
+
+        // Kick off news retrieval asynchronously (0 HTTP calls when included_news was cached on Splash)
+        this.newsPromise = config.GetNews();
+
+        const [activeInstance, launcherRec] = await Promise.all([
+            getActiveInstance(this.config, this.database),
+            this.database.get('1234', 'launcher'),
+        ]);
+        this.activeInstance = activeInstance;
+
+        const savedCloseBehavior = launcherRec?.value?.launcher?.close || 'close-launcher';
+        setCloseBehavior(savedCloseBehavior).catch(() => {});
 
         await this.createPanels(Login, Home, Settings);
         this.bindStateEvents();
@@ -85,7 +106,6 @@ class Launcher {
     }
 
     initFrame() {
-        console.log('Initializing Frame...');
         const frame = document.querySelector('.frame');
         const dragbar = document.querySelector('.dragbar');
         if (frame) frame.classList.add('hide');
@@ -119,24 +139,35 @@ class Launcher {
         const panelsElem = document.querySelector('.panels');
         this.panelInstances = {};
 
-        for (const PanelClass of panels) {
-            console.log(`Initializing ${PanelClass.name} Panel...`);
+        // Fetch all panel HTML templates concurrently
+        const templates = await Promise.all(
+            panels.map(async (PanelClass) => {
+                const res = await fetch(`./panels/${PanelClass.id}.html`);
+                const html = await res.text();
+                return { PanelClass, html };
+            })
+        );
+
+        for (const { PanelClass, html } of templates) {
             const div = document.createElement('div');
             div.classList.add('panel', PanelClass.id);
-
-            const res = await fetch(`./panels/${PanelClass.id}.html`);
-            div.innerHTML = await res.text();
+            div.innerHTML = html;
             panelsElem.appendChild(div);
-
-            const instance = new PanelClass();
-            this.panelInstances[PanelClass.id] = instance;
-            await instance.init(this.config, this.news);
+            this.panelInstances[PanelClass.id] = new PanelClass();
         }
+
+        // Initialize all panels concurrently (heavy work inside Home/Settings is non-blocking/lazy)
+        await Promise.all(
+            panels.map((PanelClass) =>
+                this.panelInstances[PanelClass.id].init(this.config, this.newsPromise)
+            )
+        );
     }
 
     bindStateEvents() {
         window.addEventListener('instance-changed', async (e) => {
-            this.activeInstance = e.detail?.instance || await getActiveInstance(this.config, this.database);
+            this.activeInstance =
+                e.detail?.instance || (await getActiveInstance(this.config, this.database));
             const account = await this.getSelectedAccount();
             if (account) {
                 updatePlayButtonState(account, this.activeInstance, this.config);
@@ -145,7 +176,7 @@ class Launcher {
         });
 
         window.addEventListener('account-changed', async (e) => {
-            const account = e.detail?.account || await this.getSelectedAccount();
+            const account = e.detail?.account || (await this.getSelectedAccount());
             if (account) {
                 this.activeInstance = await getActiveInstance(this.config, this.database);
                 updatePlayerWidgets(account, this.config);
@@ -162,11 +193,106 @@ class Launcher {
         return rec?.value ? normalizeAccount(rec.value) : null;
     }
 
+    async verifySingleStoredAccount(stored, azauthUrl, panelBaseUrl) {
+        if (stored.meta?.type === 'Microsoft') {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const hasFreshToken = Number(stored.expires_at || 0) > nowSec + 300;
+
+            if (hasFreshToken) {
+                // Skip full 5-step Microsoft OAuth refresh when token is still valid (> 5 min left);
+                // only sync Panel player info (role, points, ban, maintenance_bypass) if in Panel mode.
+                if (!panelBaseUrl) {
+                    return { status: 'valid', account: stored, changed: false };
+                }
+                try {
+                    const syncedRaw = await syncMicrosoftPanel(stored, panelBaseUrl);
+                    const synced = normalizeAccount(syncedRaw);
+                    if (synced.user_info?.banned) {
+                        return { status: 'remove', uuid: stored.uuid };
+                    }
+                    return { status: 'valid', account: synced, changed: true };
+                } catch (err) {
+                    const msg = String(err?.message || err || '').toLowerCase();
+                    if (msg.includes('user_banned')) {
+                        return { status: 'remove', uuid: stored.uuid };
+                    }
+                    return { status: 'valid', account: stored, changed: false };
+                }
+            }
+
+            console.log(`Refreshing expiring Microsoft account ${stored.name}...`);
+            try {
+                const refreshedRaw = await authMicrosoftRefresh(
+                    stored,
+                    this.config.client_id || null,
+                    panelBaseUrl
+                );
+                const refreshed = normalizeAccount(refreshedRaw);
+                if (refreshed.user_info?.banned) {
+                    return { status: 'remove', uuid: stored.uuid };
+                }
+                return { status: 'valid', account: refreshed, changed: true };
+            } catch (err) {
+                const msg = String(err?.message || err || '').toLowerCase();
+                console.error(`[Microsoft Account] ${stored.uuid}: ${msg}`);
+                if (
+                    msg.includes('user_banned') ||
+                    msg.includes('invalid_grant') ||
+                    msg.includes('unauthorized')
+                ) {
+                    return { status: 'remove', uuid: stored.uuid };
+                }
+                return { status: 'valid', account: stored, changed: false };
+            }
+        }
+
+        // Azuriom (`AZauth`) account
+        if (!azauthUrl) {
+            return { status: 'valid', account: stored, changed: false };
+        }
+
+        try {
+            const verifiedRaw = await authAzuriomVerify(azauthUrl, stored.access_token);
+            const verified = normalizeAccount(verifiedRaw);
+
+            if (verified.user_info?.banned) {
+                return { status: 'remove', uuid: stored.uuid };
+            }
+
+            if (this.config.email_verified && !verified.user_info?.verified) {
+                return { status: 'unverified_email', uuid: stored.uuid };
+            }
+
+            // Preserve locally cached custom skin variant/base64 if verify response has empty skins
+            if (
+                (!verified.profile?.skins || verified.profile.skins.length === 0) &&
+                stored.profile?.skins?.length
+            ) {
+                verified.profile = {
+                    ...(verified.profile || { id: verified.uuid, name: verified.name, capes: [] }),
+                    skins: stored.profile.skins,
+                };
+            }
+
+            return { status: 'valid', account: verified, changed: true };
+        } catch (err) {
+            console.warn(`[AZauth Account] ${stored.uuid}:`, err);
+            if (isPermanentAzuriomAuthError(err)) {
+                return { status: 'remove', uuid: stored.uuid };
+            }
+            // Transient network/timeout/5xx error: never delete the player's saved account!
+            return { status: 'valid', account: stored, changed: false };
+        }
+    }
+
     async getAccounts() {
-        const azauthUrl = await config.getAzAuthUrl(this.config);
-        const panelBaseUrl = this.meta.env !== 'azuriom' ? await config.getPanelBaseUrl() : null;
-        const accounts = await this.database.getAll('accounts');
-        const selectedAccount = (await this.database.get('1234', 'accounts-selected'))?.value?.selected;
+        const [azauthUrl, panelBaseUrl, accounts, selectedRec] = await Promise.all([
+            config.getAzAuthUrl(this.config),
+            this.meta.env !== 'azuriom' ? config.getPanelBaseUrl() : Promise.resolve(null),
+            this.database.getAll('accounts'),
+            this.database.get('1234', 'accounts-selected'),
+        ]);
+        const selectedAccount = selectedRec?.value?.selected || null;
 
         if (!accounts.length) {
             changePanel('login');
@@ -174,100 +300,65 @@ class Launcher {
             return;
         }
 
-        for (const entry of accounts) {
-            const stored = normalizeAccount(entry?.value);
-            if (!stored) continue;
+        const storedAccounts = accounts
+            .map((entry) => normalizeAccount(entry?.value))
+            .filter(Boolean);
 
-            if (stored.meta?.type === 'Microsoft') {
-                console.log(`Refreshing Microsoft account ${stored.name}...`);
-                try {
-                    const refreshedRaw = await authMicrosoftRefresh(
-                        stored,
-                        this.config.client_id || null,
-                        panelBaseUrl
-                    );
-                    const refreshed = normalizeAccount(refreshedRaw);
-                    if (refreshed.user_info?.banned) {
-                        await this.database.delete(stored.uuid, 'accounts');
-                        if (stored.uuid === selectedAccount) {
-                            await this.database.update({ uuid: '1234' }, 'accounts-selected');
-                        }
-                        continue;
-                    }
-                    await this.database.update(refreshed, 'accounts');
-                    await addAccount(refreshed);
-                    if (stored.uuid === selectedAccount) {
-                        await accountSelect(refreshed.uuid, refreshed);
-                    }
-                } catch (err) {
-                    const msg = String(err?.message || err || '');
-                    console.error(`[Microsoft Account] ${stored.uuid}: ${msg}`);
-                    if (msg.includes('user_banned') || msg.includes('invalid_grant') || msg.includes('unauthorized')) {
-                        await this.database.delete(stored.uuid, 'accounts');
-                        if (stored.uuid === selectedAccount) {
-                            await this.database.update({ uuid: '1234' }, 'accounts-selected');
-                        }
-                    } else {
-                        // Keep cached Microsoft session if temporarily offline
-                        await addAccount(stored);
-                        if (stored.uuid === selectedAccount) {
-                            await accountSelect(stored.uuid, stored);
-                        }
-                    }
-                }
-            } else if (stored.meta?.type === 'AZauth') {
-                console.log(`Verifying Azuriom account ${stored.name}...`);
-                if (!azauthUrl) {
-                    await addAccount(stored);
-                    if (stored.uuid === selectedAccount) {
-                        await accountSelect(stored.uuid, stored);
-                    }
-                    continue;
-                }
-                try {
-                    const verifiedRaw = await authAzuriomVerify(azauthUrl, stored.access_token);
-                    const verified = normalizeAccount(verifiedRaw);
+        // Verify all stored accounts concurrently instead of sequentially
+        const settled = await Promise.allSettled(
+            storedAccounts.map((stored) =>
+                this.verifySingleStoredAccount(stored, azauthUrl, panelBaseUrl)
+            )
+        );
 
-                    if (this.config.email_verified && !verified.user_info?.verified) {
-                        await this.database.delete(stored.uuid, 'accounts');
-                        if (stored.uuid === selectedAccount) {
-                            await this.database.update({ uuid: '1234' }, 'accounts-selected');
-                        }
-                        continue;
-                    }
+        const validAccounts = [];
+        let sawUnverifiedEmail = false;
 
-                    await this.database.update(verified, 'accounts');
-                    await addAccount(verified);
-                    if (stored.uuid === selectedAccount) {
-                        await accountSelect(verified.uuid, verified);
-                    }
-                } catch (err) {
-                    console.error(`[AZauth Account] ${stored.uuid}:`, err);
-                    await this.database.delete(stored.uuid, 'accounts');
-                    if (stored.uuid === selectedAccount) {
-                        await this.database.update({ uuid: '1234' }, 'accounts-selected');
-                    }
-                }
+        for (let i = 0; i < settled.length; i++) {
+            const item = settled[i];
+            const fallbackStored = storedAccounts[i];
+            if (item.status !== 'fulfilled' || !item.value) {
+                validAccounts.push(fallbackStored);
+                continue;
             }
+
+            const res = item.value;
+            if (res.status === 'remove' || res.status === 'unverified_email') {
+                if (res.status === 'unverified_email') {
+                    sawUnverifiedEmail = true;
+                }
+                await this.database.delete(res.uuid, 'accounts');
+                if (res.uuid === selectedAccount) {
+                    await this.database.update({ uuid: '1234' }, 'accounts-selected');
+                }
+                continue;
+            }
+
+            if (res.changed) {
+                await this.database.update(res.account, 'accounts');
+            }
+            validAccounts.push(res.account);
         }
 
-        const remainingAccounts = await this.database.getAll('accounts');
-        if (!remainingAccounts.length) {
+        if (!validAccounts.length) {
             changePanel('login');
+            if (sawUnverifiedEmail && this.panelInstances?.login?.showEmailVerificationCard) {
+                this.panelInstances.login.showEmailVerificationCard();
+            }
             this.hidePreloader();
             return;
         }
 
-        let currentSelected = (await this.database.get('1234', 'accounts-selected'))?.value?.selected;
-        if (!currentSelected || !remainingAccounts.some((a) => a.value?.uuid === currentSelected)) {
-            const firstAcc = normalizeAccount(remainingAccounts[0]?.value);
-            if (firstAcc?.uuid) {
-                await this.database.update({ uuid: '1234', selected: firstAcc.uuid }, 'accounts-selected');
-                await accountSelect(firstAcc.uuid, firstAcc);
-            }
-        }
+        await Promise.all(validAccounts.map((acc) => addAccount(acc)));
 
-        await this.refreshDataAndPreload();
+        let activeAcc =
+            validAccounts.find((a) => a.uuid === selectedAccount) || validAccounts[0];
+        if (activeAcc.uuid !== selectedAccount) {
+            await this.database.update({ uuid: '1234', selected: activeAcc.uuid }, 'accounts-selected');
+        }
+        await accountSelect(activeAcc.uuid, activeAcc);
+
+        await this.refreshDataAndShowHome(activeAcc);
     }
 
     hidePreloader() {
@@ -276,12 +367,12 @@ class Launcher {
             preloader.classList.add('fade-out');
             setTimeout(() => {
                 preloader.style.display = 'none';
-            }, 500);
+            }, 350);
         }
     }
 
-    async refreshDataAndPreload() {
-        const account = await this.getSelectedAccount();
+    async refreshDataAndShowHome(accountOverride = null) {
+        const account = accountOverride || (await this.getSelectedAccount());
         if (!account) {
             changePanel('login');
             this.hidePreloader();
@@ -292,99 +383,48 @@ class Launcher {
         updatePlayerWidgets(account, this.config);
         updatePlayButtonState(account, this.activeInstance, this.config);
 
-        const loadPromises = [];
-        if (this.panelInstances?.settings) {
-            loadPromises.push(this.panelInstances.settings.initPreviewSkin());
-        }
         if (this.panelInstances?.home) {
-            loadPromises.push(this.panelInstances.home.refreshInstanceView());
+            // Non-blocking refresh: renders instance selector & server icon immediately, pings server async
+            this.panelInstances.home.refreshInstanceView();
         }
-        loadPromises.push(this.preloadBackground(account));
-        loadPromises.push(this.preloadNewsImages());
 
-        const timeout = new Promise((resolve) => setTimeout(resolve, 5000));
-        await Promise.race([Promise.all(loadPromises), timeout]);
+        // Briefly warm remote custom role/instance background (capped at 450ms so Home never stalls)
+        const bgUrl = resolveBackgroundUrl(account, this.activeInstance, this.config);
+        if (/^https?:\/\//i.test(bgUrl)) {
+            await Promise.race([
+                this.preloadBackgroundUrl(bgUrl),
+                new Promise((resolve) => setTimeout(resolve, 450)),
+            ]);
+        }
 
         this.updateBackground(account);
         changePanel('home');
         this.hidePreloader();
     }
 
-    applyAccentColor() {
-        if (this.config.accent_color && /^#[0-9a-fA-F]{6}$/.test(this.config.accent_color)) {
-            const root = document.documentElement;
-            const color = this.config.accent_color;
-            root.style.setProperty('--accent-color', color);
-            root.style.setProperty('--accent-color-dark', this.darkenColor(color, 15));
-            root.style.setProperty('--accent-color-glow', this.hexToRgba(color, 0.4));
-            root.style.setProperty('--accent-color-subtle', this.hexToRgba(color, 0.15));
-            root.style.setProperty('--border-accent', this.hexToRgba(color, 0.3));
-        }
-    }
-
-    hexToRgba(hex, alpha) {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    }
-
-    darkenColor(hex, percent) {
-        const r = Math.max(0, parseInt(hex.slice(1, 3), 16) - percent);
-        const g = Math.max(0, parseInt(hex.slice(3, 5), 16) - percent);
-        const b = Math.max(0, parseInt(hex.slice(5, 7), 16) - percent);
-        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-    }
-
-    preloadBackground(account) {
+    preloadBackgroundUrl(url) {
         return new Promise((resolve) => {
-            const finalBgUrl = resolveBackgroundUrl(account, this.activeInstance, this.config);
             const img = new Image();
             img.onload = () => resolve();
             img.onerror = () => resolve();
-            img.src = finalBgUrl;
-        });
-    }
-
-    preloadNewsImages() {
-        return new Promise((resolve) => {
-            const newsImages = document.querySelectorAll('.news-image');
-            if (newsImages.length === 0) {
-                resolve();
-                return;
-            }
-
-            let loadedCount = 0;
-            const totalImages = newsImages.length;
-
-            newsImages.forEach((newsImg) => {
-                const bgImage = newsImg.style.backgroundImage;
-                if (bgImage && bgImage !== 'none') {
-                    const url = bgImage.replace(/url\(['"]?([^'")]+)['"]?\)/g, '$1');
-                    const img = new Image();
-                    img.onload = img.onerror = () => {
-                        loadedCount++;
-                        if (loadedCount >= totalImages) resolve();
-                    };
-                    img.src = url;
-                } else {
-                    loadedCount++;
-                    if (loadedCount >= totalImages) resolve();
-                }
-            });
+            img.src = url;
         });
     }
 
     updateBackground(account) {
         const finalBgUrl = resolveBackgroundUrl(account, this.activeInstance, this.config);
+        if (this._currentBgUrl === finalBgUrl) {
+            return;
+        }
+        this._currentBgUrl = finalBgUrl;
 
         if (!document.getElementById('bg-transition-overlay')) {
             const overlay = document.createElement('div');
             overlay.id = 'bg-transition-overlay';
             overlay.style.cssText = `
                 position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                z-index: -1; opacity: 0; transition: opacity 0.5s ease;
-                background-size: cover; background-position: center;
+                z-index: -1; opacity: 0; transition: opacity 0.45s ease;
+                background-size: cover; background-position: center; pointer-events: none;
             `;
             document.body.appendChild(overlay);
         }
@@ -396,11 +436,12 @@ class Launcher {
             overlay.style.opacity = '1';
         });
 
-        setTimeout(() => {
+        clearTimeout(this._bgSwapTimer);
+        this._bgSwapTimer = setTimeout(() => {
             document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url("${finalBgUrl}") black no-repeat center center scroll`;
             document.body.style.backgroundSize = 'cover';
             overlay.style.opacity = '0';
-        }, 550);
+        }, 480);
     }
 }
 

@@ -116,5 +116,7 @@
     "no_capes_owned": "Keine offiziellen Umhänge auf diesem Konto verfügbar.",
     "skin_updated": "Skin erfolgreich aktualisiert!",
     "cape_updated": "Umhang aktualisiert!",
-    "extraction": "Entpacken..."
+    "extraction": "Entpacken...",
+    "solo_mode": "Einzelspieler",
+    "pinned": "Angepinnt"
 }

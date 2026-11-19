@@ -1,5 +1,3 @@
-<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,100..700;1,100..700&display=swap"
-    rel="stylesheet">
 <div class="settings-content">
     <div class="tabs-settings-btn">
         <button style="margin-top: 40px;" class="tab-btn-css tab-btn active-tab-btn default-tab-btn"
@@ -94,9 +92,6 @@
             <div class="center-page">
                 <div class="skin-section-layout">
                     <div class="skin-preview-container">
-                        <iframe frameborder="0" id="skinRender2" class="skin-renderer-settings"
-                            style="border: none; width: 319px; height: 221px;" src=""></iframe>
-
                         <div class="ms-skin-viewer-wrap" id="msSkinViewerWrap" style="display: none;">
                             <canvas id="skin3dCanvas" class="skin-3d-canvas" width="319" height="250"></canvas>
                             <div class="skin-rotate-hint" id="skinRotateHint"></div>
@@ -105,9 +100,13 @@
                                 <button type="button" class="skin-model-btn" id="skinModelSlimBtn"></button>
                             </div>
                         </div>
+
+                        <div class="skin-2d-fallback-wrap" id="skin2dFallbackWrap" style="display: none;">
+                            <img id="skin2dFallbackImg" class="skin-2d-fallback-img" alt="" />
+                        </div>
                     </div>
 
-                    <div class="skin-upload-container">
+                    <div class="skin-upload-container" id="skinUploadContainer">
                         <input type="file" id="fileInput" accept="image/png" style="display: none;">
                         <div class="skin-dropzone" id="skinDropzone">
                             <div class="dropzone-content">

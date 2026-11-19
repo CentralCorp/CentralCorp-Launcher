@@ -116,5 +116,7 @@
     "no_capes_owned": "Aucune cape officielle disponible sur ce compte.",
     "skin_updated": "Skin mis à jour avec succès !",
     "cape_updated": "Cape mise à jour !",
-    "extraction": "Extraction en cours..."
+    "extraction": "Extraction en cours...",
+    "solo_mode": "Solo",
+    "pinned": "Épinglé"
 }

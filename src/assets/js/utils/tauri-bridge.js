@@ -38,7 +38,9 @@ export function getLauncherMeta() {
 }
 
 export function resolveGameRoot(meta, dataDirectoryName) {
-    const cleanName = String(dataDirectoryName || 'minecraft').replace(/^\.+/, '').replace(/^[/\\]+|[/\\]+$/g, '');
+    const cleanName = String(dataDirectoryName || 'minecraft')
+        .replace(/^\.+/, '')
+        .replace(/^[/\\]+|[/\\]+$/g, '');
     if (!meta || !meta.data_root) {
         return `.${cleanName}`;
     }
@@ -72,14 +74,21 @@ export async function showWindow() {
     return getCurrentWindow().show();
 }
 
+let lastProgressPct = null;
+
 export async function setWindowProgress(downloaded, total) {
     try {
         const win = getCurrentWindow();
         if (!total || total <= 0 || Number.isNaN(downloaded) || Number.isNaN(total)) {
-            await win.setProgressBar({ status: 'none' });
+            if (lastProgressPct !== -1) {
+                lastProgressPct = -1;
+                await win.setProgressBar({ status: 'none' });
+            }
             return;
         }
         const pct = Math.max(0, Math.min(100, Math.round((downloaded / total) * 100)));
+        if (lastProgressPct === pct) return;
+        lastProgressPct = pct;
         await win.setProgressBar({ status: 'normal', progress: pct });
     } catch (_) {
         // Ignore on window managers that do not implement taskbar progress
@@ -88,6 +97,8 @@ export async function setWindowProgress(downloaded, total) {
 
 export async function resetWindowProgress() {
     try {
+        if (lastProgressPct === -1) return;
+        lastProgressPct = -1;
         await getCurrentWindow().setProgressBar({ status: 'none' });
     } catch (_) {
         // Ignore on unsupported window managers
@@ -95,15 +106,17 @@ export async function resetWindowProgress() {
 }
 
 // ---------------------------------------------------------------------------
-// Typed wrappers for all 20 Tauri Rust commands
+// Typed wrappers for all Tauri Rust commands
 // ---------------------------------------------------------------------------
 
 export async function getSystemMemory() {
     return invoke('get_system_memory');
 }
 
-export async function fetchRemoteConfig() {
-    return invoke('fetch_remote_config');
+export async function fetchRemoteConfig(force_refresh = false) {
+    return invoke('fetch_remote_config', {
+        force_refresh: Boolean(force_refresh),
+    });
 }
 
 export async function fetchNews({ news_source = null, news_url = null, azauth_url = null } = {}) {
@@ -149,10 +162,39 @@ export async function authMicrosoftRefresh(account, client_id = null, panel_base
     });
 }
 
-export async function uploadPlayerSkin(account, base_url, png_base64, slim = false) {
+export async function syncMicrosoftPanel(accountOrOpts, panel_base_url = null) {
+    if (accountOrOpts && typeof accountOrOpts === 'object' && 'account' in accountOrOpts) {
+        return invoke('sync_microsoft_panel', {
+            account: accountOrOpts.account,
+            panel_base_url: accountOrOpts.panel_base_url || null,
+        });
+    }
+    return invoke('sync_microsoft_panel', {
+        account: accountOrOpts,
+        panel_base_url: panel_base_url || null,
+    });
+}
+
+export async function uploadPlayerSkin(
+    accountOrOpts,
+    base_url = null,
+    png_base64 = '',
+    slim = false,
+    panel_base_url = null
+) {
+    if (accountOrOpts && typeof accountOrOpts === 'object' && 'account' in accountOrOpts) {
+        return invoke('upload_player_skin', {
+            account: accountOrOpts.account,
+            base_url: accountOrOpts.base_url || null,
+            panel_base_url: accountOrOpts.panel_base_url || null,
+            png_base64: accountOrOpts.png_base64,
+            slim: Boolean(accountOrOpts.slim),
+        });
+    }
     return invoke('upload_player_skin', {
-        account,
+        account: accountOrOpts,
         base_url: base_url || null,
+        panel_base_url: panel_base_url || null,
         png_base64,
         slim: Boolean(slim),
     });
@@ -169,7 +211,7 @@ export async function listOptionalMods(data_directory, instance_slug, mods_url) 
     return invoke('list_optional_mods', {
         data_directory,
         instance_slug,
-        mods_url,
+        mods_url: mods_url || '',
     });
 }
 
@@ -182,10 +224,22 @@ export async function toggleOptionalMod(data_directory, instance_slug, mod_file,
     });
 }
 
-export async function syncOptionalMods(data_directory, instance_slug) {
+export async function syncOptionalMods(dataDirectoryOrOpts, instance_slug = 'default', mods_url = null) {
+    if (
+        dataDirectoryOrOpts &&
+        typeof dataDirectoryOrOpts === 'object' &&
+        'data_directory' in dataDirectoryOrOpts
+    ) {
+        return invoke('sync_optional_mods', {
+            data_directory: dataDirectoryOrOpts.data_directory,
+            instance_slug: dataDirectoryOrOpts.instance_slug || 'default',
+            mods_url: dataDirectoryOrOpts.mods_url || null,
+        });
+    }
     return invoke('sync_optional_mods', {
-        data_directory,
+        data_directory: dataDirectoryOrOpts,
         instance_slug,
+        mods_url: mods_url || null,
     });
 }
 
@@ -194,6 +248,12 @@ export async function launchInstance(options, close_behavior = 'close-launcher',
         options,
         close_behavior,
         mods_url: mods_url || null,
+    });
+}
+
+export async function setCloseBehavior(behavior) {
+    return invoke('set_close_behavior', {
+        behavior: String(behavior || 'close-launcher'),
     });
 }
 

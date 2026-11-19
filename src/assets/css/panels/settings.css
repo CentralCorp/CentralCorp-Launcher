@@ -1026,6 +1026,26 @@ input:checked+.slider:before {
     color: rgba(255, 255, 255, 0.45);
 }
 
+.skin-2d-fallback-wrap {
+    width: 319px;
+    height: 250px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+}
+
+.skin-2d-fallback-img {
+    width: 112px;
+    height: 112px;
+    border-radius: 12px;
+    image-rendering: pixelated;
+    object-fit: contain;
+}
+
 .skin-model-pill {
     display: inline-flex;
     background: rgba(0, 0, 0, 0.4);

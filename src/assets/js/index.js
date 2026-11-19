@@ -9,10 +9,9 @@
 
 import {
     config,
-    database,
     initTranslations,
-    canBypassMaintenance,
-    normalizeAccount,
+    applyAccentColor,
+    stripHtmlToText,
     t,
 } from './utils.js';
 import {
@@ -42,115 +41,126 @@ class Splash {
     }
 
     async startAnimation() {
-        await initTranslations();
-
-        document.getElementById('splash-message').textContent = t('welcome_message');
-        document.getElementById('splash-author').textContent = t('developed_by');
-        document.getElementById('update-message').textContent = t('checking_updates');
-
-        config.GetConfig().then((res) => {
-            if (res && (res.splash || res.splash_author)) {
-                if (res.splash) {
-                    this.splashMessage.textContent = res.splash;
-                }
-                if (res.splash_author) {
-                    this.splashAuthor.children[0].textContent = `@${res.splash_author}`;
-                }
-            }
-        }).catch(() => {
-            // Handled in maintenanceCheck
+        // Run translations, remote config bootstrap (?include=news,mods), and update check in parallel
+        // alongside a crisp ~380ms splash animation instead of 1,900ms sequential sleeps.
+        const translationsReady = initTranslations().then(() => {
+            const msgEl = document.getElementById('splash-message');
+            const authorEl = document.getElementById('splash-author');
+            const updEl = document.getElementById('update-message');
+            if (msgEl && !this._customSplashApplied) msgEl.textContent = t('welcome_message');
+            if (authorEl) authorEl.textContent = t('developed_by');
+            if (updEl) updEl.textContent = t('checking_updates');
         });
 
-        await sleep(100);
-        document.querySelector('#splash').style.display = 'block';
-        await sleep(500);
-        this.splash.classList.add('opacity');
-        await sleep(500);
-        this.splash.classList.add('translate');
-        this.splashMessage.classList.add('opacity');
-        this.splashAuthor.classList.add('opacity');
-        this.message.classList.add('opacity');
-        await sleep(800);
-        await this.checkUpdate();
-    }
-
-    async checkUpdate() {
-        this.setStatus(`${t('checking_updates')}...`);
-        try {
-            const update = await checkAppUpdate();
-            if (update && update.update_available && update.download_url) {
-                const versionLabel = update.version ? ` (v${update.version})` : '';
-                this.setStatus(
-                    `${t('update_available')}${versionLabel}<br><div class="download-update">${t('download_update')}</div>`
-                );
-                const btn = document.querySelector('.download-update');
-                if (btn) {
-                    btn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        await openExternalUrl(update.download_url);
-                        this.shutdown(t('downloading_update'));
-                    });
+        const configPromise = config.GetConfig().then((cfg) => {
+            if (cfg) {
+                applyAccentColor(cfg);
+                if (cfg.splash) {
+                    this._customSplashApplied = true;
+                    this.splashMessage.textContent = cfg.splash;
                 }
-                return;
+                if (cfg.splash_author && this.splashAuthor?.children?.[0]) {
+                    this.splashAuthor.children[0].textContent = `@${cfg.splash_author}`;
+                }
             }
-        } catch (err) {
+            return cfg;
+        });
+
+        const updatePromise = checkAppUpdate().catch((err) => {
             console.warn('Update check skipped:', err);
+            return null;
+        });
+
+        const visualTransition = (async () => {
+            const splashSvg = document.querySelector('#splash');
+            if (splashSvg) splashSvg.style.display = 'block';
+            await sleep(60);
+            this.splash.classList.add('opacity');
+            await sleep(140);
+            this.splash.classList.add('translate');
+            this.splashMessage.classList.add('opacity');
+            this.splashAuthor.classList.add('opacity');
+            this.message.classList.add('opacity');
+            await sleep(180);
+        })();
+
+        const [, configSettled, updateResult] = await Promise.all([
+            translationsReady,
+            configPromise.then(
+                (value) => ({ ok: true, value }),
+                (error) => ({ ok: false, error })
+            ),
+            updatePromise,
+            visualTransition,
+        ]);
+
+        if (updateResult && updateResult.update_available && updateResult.download_url) {
+            this.renderUpdatePrompt(updateResult);
+            return;
         }
 
-        await this.maintenanceCheck();
-    }
-
-    async hasMaintenanceBypassAccount(cfg) {
-        try {
-            const db = await new database().init();
-            const accounts = await db.getAll('accounts');
-            for (const entry of accounts) {
-                const acc = normalizeAccount(entry?.value);
-                if (acc && canBypassMaintenance(acc, cfg)) {
-                    return true;
-                }
-            }
-        } catch (_) {
-            // Ignore IndexedDB errors on splash
+        if (!configSettled.ok || !configSettled.value) {
+            console.error(configSettled.error);
+            this.shutdown(t('no_internet_connection'));
+            return;
         }
-        return false;
-    }
 
-    async maintenanceCheck() {
-        try {
-            const res = await config.GetConfig();
-            if (res.maintenance) {
-                const bypassed = await this.hasMaintenanceBypassAccount(res);
-                if (!bypassed) {
-                    return this.shutdown(res.maintenance_message || t('maintenance_active'));
-                }
-            }
-            await this.startLauncher();
-        } catch (err) {
-            console.error(err);
-            return this.shutdown(t('no_internet_connection'));
+        const cfg = configSettled.value;
+        if (cfg.maintenance) {
+            // Proceed into main window so staff / maintenance_bypass accounts can log in or verify
+            // live roles, while non-bypass players see the clear maintenance notice on Login/Home.
+            const notice = stripHtmlToText(cfg.maintenance_message) || t('maintenance_active');
+            this.setStatusText(notice);
+        } else {
+            this.setStatusText(t('starting_launcher'));
         }
-    }
 
-    async startLauncher() {
-        this.setStatus(t('starting_launcher'));
         await openMainWindow();
     }
 
+    renderUpdatePrompt(update) {
+        const versionLabel = update.version ? ` (v${update.version})` : '';
+        this.message.textContent = '';
+
+        const labelNode = document.createTextNode(`${t('update_available')}${versionLabel}`);
+        const br = document.createElement('br');
+        const btn = document.createElement('div');
+        btn.className = 'download-update';
+        btn.textContent = t('download_update');
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await openExternalUrl(update.download_url);
+            this.shutdown(t('downloading_update'));
+        });
+
+        this.message.append(labelNode, br, btn);
+    }
+
     shutdown(text) {
-        this.setStatus(`${text}<br>${t('shutdown_in')} 5s`);
+        const cleanText = stripHtmlToText(text);
+        const renderCountdown = (secLeft) => {
+            this.message.textContent = '';
+            this.message.append(
+                document.createTextNode(cleanText),
+                document.createElement('br'),
+                document.createTextNode(`${t('shutdown_in')} ${secLeft}s`)
+            );
+        };
+
+        renderCountdown(5);
         let i = 4;
         const timer = setInterval(() => {
-            this.setStatus(`${text}<br>${t('shutdown_in')} ${i--}s`);
             if (i < 0) {
                 clearInterval(timer);
                 closeWindow();
+                return;
             }
+            renderCountdown(i--);
         }, 1000);
     }
 
-    setStatus(text) {
-        this.message.innerHTML = text;
+    setStatusText(text) {
+        this.message.textContent = String(text ?? '');
     }
 
     toggleProgress() {

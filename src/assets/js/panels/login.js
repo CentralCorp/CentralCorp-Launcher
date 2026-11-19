@@ -14,6 +14,7 @@ import {
     addAccount,
     accountSelect,
     normalizeAccount,
+    stripHtmlToText,
     showLoadingOverlay,
     hideLoadingOverlay,
     t,
@@ -30,11 +31,19 @@ class Login {
 
     async init(config) {
         this.config = config;
-        this.meta = await getLauncherMeta();
-        this.database = await new database().init();
+        const [meta, db] = await Promise.all([getLauncherMeta(), new database().init()]);
+        this.meta = meta;
+        this.database = db;
         this.setStaticTexts();
         this.configureAuthMode();
         await this.setupAuthHandlers();
+        this.refreshMaintenanceBanner();
+
+        window.addEventListener('panel-changed', (e) => {
+            if (e.detail?.panel === 'login') {
+                this.refreshMaintenanceBanner();
+            }
+        });
     }
 
     setStaticTexts() {
@@ -52,6 +61,15 @@ class Login {
         document.getElementById('new-user-link').textContent = t('no_account');
         document.getElementById('auth-divider-text').textContent = t('or_divider');
         document.getElementById('microsoft-auth-desc').textContent = t('microsoft_auth_subtitle');
+    }
+
+    refreshMaintenanceBanner() {
+        const elements = this.getElements();
+        if (!elements.infoLogin) return;
+        if (this.config?.maintenance && !elements.infoLogin.textContent.trim()) {
+            const msg = stripHtmlToText(this.config.maintenance_message) || t('maintenance_active');
+            elements.infoLogin.textContent = msg;
+        }
     }
 
     getAuthMode() {
@@ -137,9 +155,9 @@ class Login {
 
         // Azuriom 2FA submit
         const submit2fa = async () => {
-            elements.infoLogin2f.innerHTML = t('connecting');
+            elements.infoLogin2f.textContent = t('connecting');
             if (!elements.a2finput.value.trim()) {
-                elements.infoLogin2f.innerHTML = t('enter_2fa_code');
+                elements.infoLogin2f.textContent = t('enter_2fa_code');
                 return;
             }
             await this.handleAzuriomLogin(elements, azauth, elements.a2finput.value.trim());
@@ -152,16 +170,16 @@ class Login {
         // Azuriom credentials submit
         const submitAzuriom = async () => {
             this.setFormDisabled(elements, true);
-            elements.infoLogin.innerHTML = t('connecting');
+            elements.infoLogin.textContent = t('connecting');
 
             if (!elements.mailInput.value.trim()) {
-                elements.infoLogin.innerHTML = t('enter_username');
+                elements.infoLogin.textContent = t('enter_username');
                 this.setFormDisabled(elements, false);
                 return;
             }
 
             if (!elements.passwordInput.value) {
-                elements.infoLogin.innerHTML = t('enter_password');
+                elements.infoLogin.textContent = t('enter_password');
                 this.setFormDisabled(elements, false);
                 return;
             }
@@ -187,7 +205,7 @@ class Login {
 
         const newUserEl = document.querySelector('.new-user');
         if (newUserEl) {
-            newUserEl.innerHTML = t('no_account');
+            newUserEl.textContent = t('no_account');
             newUserEl.addEventListener('click', (e) => {
                 e.preventDefault();
                 openExternalUrl(newuserurl);
@@ -196,7 +214,7 @@ class Login {
 
         const pwdResetEl = document.querySelector('.password-reset');
         if (pwdResetEl) {
-            pwdResetEl.innerHTML = t('forgot_password');
+            pwdResetEl.textContent = t('forgot_password');
             pwdResetEl.addEventListener('click', (e) => {
                 e.preventDefault();
                 openExternalUrl(passwordreseturl);
@@ -216,19 +234,33 @@ class Login {
         const a2fCard = document.querySelector('.a2f-card');
         const emailVerifyCard = document.querySelector('.email-verify-card');
 
-        loginCardMain.style.display = cardType === 'default' ? 'block' : 'none';
-        a2fCard.style.display = cardType === 'a2f' ? 'block' : 'none';
-        emailVerifyCard.style.display = cardType === 'email' ? 'block' : 'none';
+        if (loginCardMain) loginCardMain.style.display = cardType === 'default' ? 'block' : 'none';
+        if (a2fCard) a2fCard.style.display = cardType === 'a2f' ? 'block' : 'none';
+        if (emailVerifyCard) emailVerifyCard.style.display = cardType === 'email' ? 'block' : 'none';
+    }
+
+    showEmailVerificationCard() {
+        const elements = this.getElements();
+        this.toggleLoginCards('email');
+        if (elements.infoLoginEmail) {
+            elements.infoLoginEmail.textContent = t('verify_email');
+        }
+        if (elements.cancelEmail) {
+            elements.cancelEmail.disabled = false;
+        }
+        this.setFormDisabled(elements, false);
     }
 
     resetLoginForm(elements) {
         this.toggleLoginCards('default');
-        elements.infoLogin.innerHTML = '';
-        elements.infoLogin2f.innerHTML = '';
+        elements.infoLogin.textContent = '';
+        elements.infoLogin2f.textContent = '';
+        if (elements.infoLoginEmail) elements.infoLoginEmail.textContent = '';
         elements.mailInput.value = '';
         elements.passwordInput.value = '';
         elements.a2finput.value = '';
         this.setFormDisabled(elements, false);
+        this.refreshMaintenanceBanner();
     }
 
     mapAuthError(errMsg) {
@@ -268,6 +300,7 @@ class Login {
             if (status === 'requires_2fa' || status === 'requires2fa' || result?.A2F === true) {
                 this.toggleLoginCards('a2f');
                 elements.a2finput.value = '';
+                elements.infoLogin2f.textContent = '';
                 elements.cancel2f.disabled = false;
                 elements.a2finput.focus();
                 return;
@@ -276,10 +309,20 @@ class Login {
             const rawAccount = result?.account || result;
             const account = normalizeAccount(rawAccount);
 
-            if (this.config.email_verified && !account.user_info?.verified) {
-                elements.infoLogin.innerHTML = t('verify_email');
-                elements.infoLogin2f.innerHTML = t('verify_email');
+            if (account.user_info?.banned) {
+                const msg = t('account_banned');
+                if (a2fCode) {
+                    elements.infoLogin2f.textContent = msg;
+                } else {
+                    elements.infoLogin.textContent = msg;
+                }
                 this.setFormDisabled(elements, false);
+                return;
+            }
+
+            // Enforced after BOTH direct login AND 2FA completion
+            if (this.config.email_verified && !account.user_info?.verified) {
+                this.showEmailVerificationCard();
                 return;
             }
 
@@ -290,9 +333,9 @@ class Login {
             console.error('Azuriom login error:', err);
             const friendly = this.mapAuthError(err?.message || err);
             if (a2fCode) {
-                elements.infoLogin2f.innerHTML = friendly;
+                elements.infoLogin2f.textContent = friendly;
             } else {
-                elements.infoLogin.innerHTML = friendly;
+                elements.infoLogin.textContent = friendly;
             }
             this.setFormDisabled(elements, false);
         }
@@ -300,7 +343,7 @@ class Login {
 
     async handleMicrosoftLogin(elements) {
         this.setFormDisabled(elements, true);
-        elements.infoLogin.innerHTML = t('connecting_microsoft');
+        elements.infoLogin.textContent = t('connecting_microsoft');
 
         try {
             const panelBaseUrl = this.meta.env !== 'azuriom'
@@ -313,14 +356,14 @@ class Login {
 
             // Null means user closed the OAuth2 popup window
             if (!rawAccount) {
-                elements.infoLogin.innerHTML = t('login_cancelled');
+                elements.infoLogin.textContent = t('login_cancelled');
                 this.setFormDisabled(elements, false);
                 return;
             }
 
             const account = normalizeAccount(rawAccount);
             if (account.user_info?.banned) {
-                elements.infoLogin.innerHTML = t('account_banned');
+                elements.infoLogin.textContent = t('account_banned');
                 this.setFormDisabled(elements, false);
                 return;
             }
@@ -330,7 +373,7 @@ class Login {
             elements.cancelLoginBtn.style.display = 'none';
         } catch (err) {
             console.error('Microsoft login error:', err);
-            elements.infoLogin.innerHTML = this.mapAuthError(err?.message || err);
+            elements.infoLogin.textContent = this.mapAuthError(err?.message || err);
             this.setFormDisabled(elements, false);
         }
     }
@@ -338,13 +381,7 @@ class Login {
     async saveAccount(account) {
         showLoadingOverlay();
         try {
-            const existingAccount = await this.database.get(account.uuid, 'accounts');
-            if (existingAccount && existingAccount.value) {
-                await this.database.update(account, 'accounts');
-            } else {
-                await this.database.add(account, 'accounts');
-            }
-
+            await this.database.update(account, 'accounts');
             await this.database.update({ uuid: '1234', selected: account.uuid }, 'accounts-selected');
             await addAccount(account);
             await accountSelect(account.uuid, account);

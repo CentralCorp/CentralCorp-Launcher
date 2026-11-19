@@ -5,36 +5,39 @@
  *
  * Edited by CentralCorp Team
  */
-let console_log = console.log;
-let console_info = console.info;
-let console_warn = console.warn;
-let console_debug = console.debug;
-let console_error = console.error;
+const console_log = console.log.bind(console);
+const console_info = console.info.bind(console);
+const console_warn = console.warn.bind(console);
+const console_debug = console.debug.bind(console);
+const console_error = console.error.bind(console);
 
 class logger {
     constructor(name, color) {
-        this.Logger(name, color)
+        this.Logger(name, color);
     }
 
-    async Logger(name, color) {
-        console.log = (value) => {
-            console_log.call(console, `%c[${name}]:`, `color: ${color};`, value);
+    Logger(name, color) {
+        const prefix = `%c[${name}]:`;
+        const style = `color: ${color};`;
+
+        console.log = (...args) => {
+            console_log(prefix, style, ...args);
         };
 
-        console.info = (value) => {
-            console_info.call(console, `%c[${name}]:`, `color: ${color};`, value);
+        console.info = (...args) => {
+            console_info(prefix, style, ...args);
         };
 
-        console.warn = (value) => {
-            console_warn.call(console, `%c[${name}]:`, `color: ${color};`, value);
+        console.warn = (...args) => {
+            console_warn(prefix, style, ...args);
         };
 
-        console.debug = (value) => {
-            console_debug.call(console, `%c[${name}]:`, `color: ${color};`, value);
+        console.debug = (...args) => {
+            console_debug(prefix, style, ...args);
         };
 
-        console.error = (value) => {
-            console_error.call(console, `%c[${name}]:`, `color: ${color};`, value);
+        console.error = (...args) => {
+            console_error(prefix, style, ...args);
         };
     }
 }

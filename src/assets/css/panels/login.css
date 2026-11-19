@@ -43,14 +43,14 @@
 
 .login-icon {
     font-size: 56px;
+    filter: drop-shadow(0 4px 12px var(--accent-color-glow, rgba(0, 189, 122, 0.4)));
+    margin-bottom: 18px;
+}
+
+.login-icon::before {
     background: linear-gradient(180deg,
             var(--accent-color, #00bd7a) 0%,
             var(--accent-color-dark, #00a066) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    filter: drop-shadow(0 4px 12px var(--accent-color-glow, rgba(0, 189, 122, 0.4)));
-    margin-bottom: 18px;
 }
 
 .login-title {
@@ -286,28 +286,6 @@
         0 32px 64px rgba(0, 0, 0, 0.4),
         0 0 0 1px rgba(255, 255, 255, 0.05) inset;
     text-align: center;
-}
-
-.login-card,
-.login-card-mojang {
-    display: none !important;
-}
-
-.login-mojang-input {
-    font-family: 'Poppins', sans-serif;
-    font-size: 15px;
-    color: #ffffff;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 14px;
-    padding: 16px 20px;
-    outline: none;
-    transition: all 0.3s ease;
-}
-
-.login-mojang-input:focus {
-    border-color: var(--accent-color, #00bd7a);
-    background: rgba(0, 0, 0, 0.4);
 }
 
 .Mail,
