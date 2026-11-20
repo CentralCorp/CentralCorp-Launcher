@@ -589,24 +589,18 @@ export function evaluateInstanceAccess(account, instance, cfg) {
 }
 
 export function updatePlayerWidgets(account, cfg) {
-    const tooltipRole = document.querySelector('.player-tooltip-role');
     const sidebarRole = document.querySelector('.player-role');
     const monnaieEl = document.querySelector('.player-monnaie');
 
+    const showRole = Boolean(cfg?.role ?? cfg?.role_display ?? cfg?.show_role);
+    const showMoney = Boolean(cfg?.money ?? cfg?.money_display ?? cfg?.show_points);
+
     const roleName = account?.user_info?.role?.name || null;
-    if (tooltipRole && sidebarRole) {
-        if (cfg?.role && roleName) {
-            tooltipRole.style.display = '';
-            tooltipRole.textContent = roleName;
+    if (sidebarRole) {
+        if (showRole && roleName) {
             sidebarRole.style.display = '';
             sidebarRole.textContent = roleName;
-        } else if (account?.name) {
-            tooltipRole.style.display = '';
-            tooltipRole.textContent = account.name;
-            sidebarRole.style.display = 'none';
-            sidebarRole.textContent = '';
         } else {
-            tooltipRole.style.display = 'none';
             sidebarRole.style.display = 'none';
             sidebarRole.textContent = '';
         }
@@ -614,11 +608,12 @@ export function updatePlayerWidgets(account, cfg) {
 
     if (monnaieEl) {
         const pts = account?.user_info?.monnaie ?? account?.user_info?.money ?? 0;
-        if (cfg?.money) {
+        if (showMoney) {
             monnaieEl.style.display = '';
             monnaieEl.textContent = `${pts} pts`;
         } else {
             monnaieEl.style.display = 'none';
+            monnaieEl.textContent = '';
         }
     }
 }
