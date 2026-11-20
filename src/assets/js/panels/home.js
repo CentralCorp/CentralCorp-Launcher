@@ -23,6 +23,8 @@ import {
     setActiveInstance,
     evaluateInstanceAccess,
     updatePlayButtonState,
+    resolveModsUrlForInstance,
+    syncOptionalModsForAccount,
     t,
 } from '../utils.js';
 import {
@@ -30,7 +32,6 @@ import {
     resolveGameRoot,
     getSystemMemory,
     pingMinecraftServer,
-    syncOptionalMods,
     launchInstance,
     listen,
     hideWindow,
@@ -95,8 +96,9 @@ class Home {
         this.initStatusServer();
         this.verifyModsBeforeLaunch();
 
-        window.addEventListener('account-changed', () => {
+        window.addEventListener('account-changed', (e) => {
             this.renderInstanceSelector();
+            this.verifyModsBeforeLaunch(e.detail?.account || null);
         });
 
         window.addEventListener('panel-changed', (e) => {
@@ -487,7 +489,7 @@ class Home {
                     }
                 }
 
-                await this.verifyModsBeforeLaunch();
+                await this.verifyModsBeforeLaunch(account);
 
                 const launcherSettings = (await this.database.get('1234', 'launcher'))?.value;
                 this.currentCloseBehavior = launcherSettings?.launcher?.close || 'close-launcher';
@@ -498,6 +500,11 @@ class Home {
                     : null;
 
                 await launchInstance(opts, this.currentCloseBehavior, modsUrl);
+                window.dispatchEvent(
+                    new CustomEvent('instance-launch-started', {
+                        detail: { instance: this.activeInstance },
+                    })
+                );
             } catch (err) {
                 console.error('Launch failed:', err);
                 this.handleLaunchError(err?.message || String(err), info, progressBar, playBtn);
@@ -721,7 +728,10 @@ class Home {
         console.log(`Minecraft exited with code ${code}`);
         window.dispatchEvent(
             new CustomEvent('instance-launched-closed', {
-                detail: { slug: this.activeInstance?.slug || 'default' },
+                detail: {
+                    slug: this.activeInstance?.slug || 'default',
+                    instance: this.activeInstance || null,
+                },
             })
         );
     }
@@ -738,6 +748,15 @@ class Home {
         info.textContent = t('verification');
         new logger('Launcher', '#7289da');
         console.error('Launch error:', message);
+        window.dispatchEvent(
+            new CustomEvent('instance-launched-closed', {
+                detail: {
+                    slug: this.activeInstance?.slug || 'default',
+                    instance: this.activeInstance || null,
+                    error: true,
+                },
+            })
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -922,16 +941,26 @@ class Home {
         return { year, month: months[month] || '', day };
     }
 
-    async verifyModsBeforeLaunch() {
+    async verifyModsBeforeLaunch(accountOverride = null) {
         try {
-            const inst = this.activeInstance || (await getActiveInstance(this.config, this.database));
+            const [inst, account] = await Promise.all([
+                this.activeInstance
+                    ? Promise.resolve(this.activeInstance)
+                    : getActiveInstance(this.config, this.database),
+                accountOverride ? Promise.resolve(accountOverride) : this.getSelectedAccount(),
+            ]);
             if (!isInstanceModded(inst, this.config)) {
                 return;
             }
-            const slug = inst?.slug || 'default';
-            const gameRoot = resolveGameRoot(this.meta, this.config.dataDirectory);
-            const modsUrl = inst?.mods_url || this.getFallbackModsUrl(slug);
-            await syncOptionalMods(gameRoot, slug, modsUrl);
+            const modsUrl = resolveModsUrlForInstance(inst, this.meta);
+            await syncOptionalModsForAccount({
+                db: this.database,
+                cfg: this.config,
+                meta: this.meta,
+                account,
+                instance: inst,
+                modsUrl,
+            });
         } catch (err) {
             console.warn('Skipping optional mods pre-launch sync:', err);
         }

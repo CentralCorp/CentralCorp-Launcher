@@ -82,6 +82,7 @@ class Login {
 
     configureAuthMode() {
         const mode = this.getAuthMode();
+        const cardMain = document.querySelector('.login-card-main');
         const azSection = document.getElementById('azuriom-auth-section');
         const divider = document.getElementById('auth-divider');
         const msSection = document.getElementById('microsoft-auth-section');
@@ -90,6 +91,18 @@ class Login {
         const msBtnText = document.getElementById('microsoft-login-text');
         const headerIcon = document.getElementById('login-header-icon');
         const heroMsLogo = document.getElementById('login-ms-hero-logo');
+
+        if (cardMain) {
+            cardMain.classList.remove('mode-microsoft', 'mode-hybrid', 'mode-azuriom');
+            cardMain.classList.add(
+                mode === 'microsoft'
+                    ? 'mode-microsoft'
+                    : mode === 'both'
+                        ? 'mode-hybrid'
+                        : 'mode-azuriom'
+            );
+            cardMain.dataset.authMode = mode;
+        }
 
         if (mode === 'microsoft') {
             azSection.style.display = 'none';

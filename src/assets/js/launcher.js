@@ -22,6 +22,7 @@ import {
     updatePlayerWidgets,
     updatePlayButtonState,
     resolveBackgroundUrl,
+    buildDiscordRpcPayload,
     t,
 } from './utils.js';
 import {
@@ -84,25 +85,23 @@ class Launcher {
     }
 
     initDiscordRPC() {
-        if (this.config && this.config.rpc_activation && this.config.rpc_id) {
-            const rpcPayload = {
-                enabled: true,
-                client_id: String(this.config.rpc_id),
-                details: this.config.rpc_details || '',
-                state: this.config.rpc_state || '',
-                large_image: this.config.rpc_large_image || '',
-                large_text: this.config.rpc_large_text || '',
-                small_image: this.config.rpc_small_image || '',
-                small_text: this.config.rpc_small_text || '',
-                button1_label: this.config.rpc_button1 || '',
-                button1_url: this.config.rpc_button1_url || '',
-                button2_label: this.config.rpc_button2 || '',
-                button2_url: this.config.rpc_button2_url || '',
-            };
-            setDiscordRpc(rpcPayload).catch((err) => {
-                console.warn('Discord RPC unavailable:', err);
-            });
+        this.updateDiscordRPC(this.activeInstance, { playing: false });
+    }
+
+    updateDiscordRPC(instance = this.activeInstance, { playing = false } = {}) {
+        const rpcPayload = buildDiscordRpcPayload(this.config, instance, { playing });
+        if (!rpcPayload) return;
+
+        const serialized = JSON.stringify(rpcPayload);
+        if (this._lastRpcPayload === serialized) {
+            return;
         }
+        this._lastRpcPayload = serialized;
+
+        setDiscordRpc(rpcPayload).catch((err) => {
+            this._lastRpcPayload = null;
+            console.warn('Discord RPC unavailable:', err);
+        });
     }
 
     initFrame() {
@@ -168,11 +167,21 @@ class Launcher {
         window.addEventListener('instance-changed', async (e) => {
             this.activeInstance =
                 e.detail?.instance || (await getActiveInstance(this.config, this.database));
+            this.updateDiscordRPC(this.activeInstance, { playing: false });
             const account = await this.getSelectedAccount();
             if (account) {
                 updatePlayButtonState(account, this.activeInstance, this.config);
                 this.updateBackground(account);
             }
+        });
+
+        window.addEventListener('instance-launch-started', (e) => {
+            const launchedInstance = e.detail?.instance || this.activeInstance;
+            this.updateDiscordRPC(launchedInstance, { playing: true });
+        });
+
+        window.addEventListener('instance-launched-closed', () => {
+            this.updateDiscordRPC(this.activeInstance, { playing: false });
         });
 
         window.addEventListener('account-changed', async (e) => {

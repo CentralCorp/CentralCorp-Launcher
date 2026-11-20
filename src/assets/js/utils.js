@@ -9,7 +9,13 @@ import config from './utils/config.js';
 import database from './utils/database.js';
 import logger from './utils/logger.js';
 import slider from './utils/slider.js';
-import { authMicrosoftRefresh } from './utils/tauri-bridge.js';
+import {
+    authMicrosoftRefresh,
+    resolveGameRoot,
+    listOptionalMods,
+    toggleOptionalMod,
+    syncOptionalMods,
+} from './utils/tauri-bridge.js';
 import {
     renderMinecraftHeadDataUrl,
     resolveAccountAvatarUrl,
@@ -699,6 +705,267 @@ export function resolveBackgroundUrl(account, instance, cfg) {
     }
 
     return DEFAULT_BG;
+}
+
+// ---------------------------------------------------------------------------
+// Per-Account & Per-Instance Optional Mods Preferences + Disk Synchronization
+// ---------------------------------------------------------------------------
+
+const OPTIONAL_MODS_PREFS_KEY = 'optional-mods-by-account';
+let _optionalModsSyncQueue = Promise.resolve();
+
+function enqueueOptionalModsOp(fn) {
+    const run = _optionalModsSyncQueue.then(fn, fn);
+    _optionalModsSyncQueue = run.catch(() => {});
+    return run;
+}
+
+export function getAccountStableId(account) {
+    if (!account) return null;
+    if (typeof account === 'string') {
+        const trimmed = account.trim();
+        return trimmed || null;
+    }
+    const raw = account.uuid || account.id || account.name;
+    return raw ? String(raw).trim() : null;
+}
+
+export function resolveModsUrlForInstance(instance, meta) {
+    if (instance?.mods_url) return instance.mods_url;
+    const rawSettings = meta?.settings_url || '';
+    if (!rawSettings) return '';
+    const base = rawSettings.endsWith('/') ? rawSettings : `${rawSettings}/`;
+    if (instance?.slug && instance.slug !== 'default') {
+        return meta?.env === 'azuriom'
+            ? `${base}api/centralcorp/instances/${instance.slug}/mods`
+            : `${base}utils/instances/${instance.slug}/mods`;
+    }
+    return meta?.env === 'azuriom' ? `${base}api/centralcorp/mods` : `${base}utils/mods`;
+}
+
+async function readOptionalModsByAccount(db, cfg = null) {
+    let byAccount = null;
+    if (db) {
+        const rec = await db.get(OPTIONAL_MODS_PREFS_KEY, 'profile');
+        const raw = rec?.value?.optionalModsByAccount;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            byAccount = raw;
+        }
+    }
+    if (!byAccount) {
+        byAccount =
+            cfg?.optionalModsByAccount && typeof cfg.optionalModsByAccount === 'object'
+                ? cfg.optionalModsByAccount
+                : {};
+    }
+    if (cfg) {
+        cfg.optionalModsByAccount = byAccount;
+    }
+    return byAccount;
+}
+
+async function writeOptionalModsByAccount(db, byAccount, cfg = null) {
+    const cleanMap = byAccount && typeof byAccount === 'object' ? byAccount : {};
+    if (cfg) {
+        cfg.optionalModsByAccount = cleanMap;
+    }
+    if (db) {
+        await db.update(
+            {
+                uuid: OPTIONAL_MODS_PREFS_KEY,
+                optionalModsByAccount: cleanMap,
+            },
+            'profile'
+        );
+    }
+}
+
+export async function setOptionalModPreference({
+    db,
+    cfg = null,
+    account,
+    instanceSlug,
+    modFile,
+    enabled,
+}) {
+    const accountId = getAccountStableId(account);
+    if (!accountId || !modFile) return;
+    const slug = String(instanceSlug || 'default');
+
+    return enqueueOptionalModsOp(async () => {
+        const byAccount = await readOptionalModsByAccount(db, cfg);
+        if (!byAccount[accountId] || typeof byAccount[accountId] !== 'object') {
+            byAccount[accountId] = {};
+        }
+        if (!byAccount[accountId][slug] || typeof byAccount[accountId][slug] !== 'object') {
+            byAccount[accountId][slug] = {};
+        }
+        byAccount[accountId][slug][modFile] = Boolean(enabled);
+        await writeOptionalModsByAccount(db, byAccount, cfg);
+    });
+}
+
+export async function deleteAccountOptionalModPreferences(db, accountOrId, cfg = null) {
+    const accountId = getAccountStableId(accountOrId);
+    if (!accountId) return;
+
+    return enqueueOptionalModsOp(async () => {
+        const byAccount = await readOptionalModsByAccount(db, cfg);
+        if (Object.prototype.hasOwnProperty.call(byAccount, accountId)) {
+            delete byAccount[accountId];
+            await writeOptionalModsByAccount(db, byAccount, cfg);
+        }
+    });
+}
+
+export async function syncOptionalModsForAccount({
+    db,
+    cfg,
+    meta,
+    account,
+    instance,
+    modsUrl = null,
+    throwOnFetchError = false,
+}) {
+    if (!isInstanceModded(instance, cfg)) {
+        return [];
+    }
+
+    const slug = String(instance?.slug || 'default');
+    const gameRoot = resolveGameRoot(meta, cfg?.dataDirectory);
+    const effectiveModsUrl = modsUrl || resolveModsUrlForInstance(instance, meta);
+    const accountId = getAccountStableId(account);
+
+    return enqueueOptionalModsOp(async () => {
+        const byAccount = accountId ? await readOptionalModsByAccount(db, cfg) : null;
+        const rawSaved =
+            accountId && byAccount?.[accountId]?.[slug] && typeof byAccount[accountId][slug] === 'object'
+                ? byAccount[accountId][slug]
+                : null;
+        const hasSavedPrefs = Boolean(rawSaved && Object.keys(rawSaved).length > 0);
+
+        // Apply saved per-account preferences onto disk + launcher_config/mods_config.json
+        if (hasSavedPrefs) {
+            for (const [modFile, desiredEnabled] of Object.entries(rawSaved)) {
+                try {
+                    await toggleOptionalMod(gameRoot, slug, modFile, Boolean(desiredEnabled));
+                } catch (err) {
+                    console.warn(`Failed to apply saved optional mod state (${modFile}):`, err);
+                }
+            }
+        }
+
+        if (effectiveModsUrl) {
+            try {
+                const mods = await listOptionalMods(gameRoot, slug, effectiveModsUrl);
+                if (Array.isArray(mods) && accountId && byAccount) {
+                    let prefsChanged = false;
+                    if (!byAccount[accountId] || typeof byAccount[accountId] !== 'object') {
+                        byAccount[accountId] = {};
+                    }
+                    if (!hasSavedPrefs) {
+                        // Gentle migration: seed this account's preferences from current disk/manifest state
+                        const initialPrefs = {};
+                        for (const mod of mods) {
+                            if (mod?.file) {
+                                initialPrefs[mod.file] = Boolean(mod.enabled);
+                            }
+                        }
+                        if (Object.keys(initialPrefs).length > 0) {
+                            byAccount[accountId][slug] = initialPrefs;
+                            prefsChanged = true;
+                        }
+                    } else {
+                        // Merge any newly added optional mods from the server manifest without overwriting saved choices
+                        for (const mod of mods) {
+                            if (
+                                mod?.file &&
+                                !Object.prototype.hasOwnProperty.call(rawSaved, mod.file)
+                            ) {
+                                rawSaved[mod.file] = Boolean(mod.enabled);
+                                prefsChanged = true;
+                            }
+                        }
+                    }
+                    if (prefsChanged) {
+                        await writeOptionalModsByAccount(db, byAccount, cfg);
+                    }
+                }
+                return Array.isArray(mods) ? mods : [];
+            } catch (err) {
+                if (throwOnFetchError) {
+                    throw err;
+                }
+                await syncOptionalMods(gameRoot, slug, effectiveModsUrl).catch(() => {});
+                return [];
+            }
+        }
+
+        await syncOptionalMods(gameRoot, slug, null).catch(() => {});
+        return [];
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Discord Rich Presence Payload Builder
+// ---------------------------------------------------------------------------
+
+export function buildDiscordRpcPayload(cfg, instance = null, { playing = false } = {}) {
+    if (!cfg || !cfg.rpc_activation || !cfg.rpc_id) {
+        return null;
+    }
+
+    const instanceName = String(instance?.name || instance?.slug || '').trim();
+    const hasPlaceholder = (str) => /\{instance\}/i.test(String(str || ''));
+    const replacePlaceholders = (str) => {
+        const raw = String(str || '');
+        if (!raw) return '';
+        if (!instanceName) {
+            return raw.replace(/\s*[-—•:]?\s*\{instance\}/gi, '').trim();
+        }
+        return raw.replace(/\{instance\}/gi, instanceName).trim();
+    };
+
+    const rawInstDetails = String(instance?.rpc_details || '').trim();
+    const rawInstState = String(instance?.rpc_state || '').trim();
+    const rawCfgDetails = String(cfg.rpc_details || '').trim();
+    const rawCfgState = String(cfg.rpc_state || '').trim();
+
+    const detailsTemplate = rawInstDetails || rawCfgDetails;
+    const stateTemplate = rawInstState || rawCfgState;
+
+    const details = replacePlaceholders(detailsTemplate);
+    let state = replacePlaceholders(stateTemplate);
+
+    const customOrTemplated =
+        Boolean(rawInstDetails || rawInstState) ||
+        hasPlaceholder(detailsTemplate) ||
+        hasPlaceholder(stateTemplate);
+
+    if (instanceName && !customOrTemplated) {
+        const multiInstance = getInstancesList(cfg).length > 1;
+        const alreadyMentioned =
+            details.toLowerCase().includes(instanceName.toLowerCase()) ||
+            state.toLowerCase().includes(instanceName.toLowerCase());
+        if ((playing || multiInstance) && !alreadyMentioned) {
+            state = state ? `${state} — ${instanceName}` : instanceName;
+        }
+    }
+
+    return {
+        enabled: true,
+        client_id: String(cfg.rpc_id),
+        details,
+        state,
+        large_image: cfg.rpc_large_image || '',
+        large_text: replacePlaceholders(cfg.rpc_large_text || ''),
+        small_image: cfg.rpc_small_image || '',
+        small_text: replacePlaceholders(cfg.rpc_small_text || ''),
+        button1_label: cfg.rpc_button1 || '',
+        button1_url: cfg.rpc_button1_url || '',
+        button2_label: cfg.rpc_button2 || '',
+        button2_url: cfg.rpc_button2_url || '',
+    };
 }
 
 function showLoadingOverlay() {

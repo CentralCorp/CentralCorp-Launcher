@@ -2,18 +2,23 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
     height: 100%;
     width: 100%;
-    padding: 20px;
+    padding: 36px 20px 20px 20px;
+    overflow: hidden;
 }
 
 .login-card-main {
     position: relative;
+    box-sizing: border-box;
     width: 420px;
+    max-width: calc(100vw - 40px);
+    max-height: calc(100vh - 56px);
     background: rgba(10, 10, 12, 0.7);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    padding: 45px 40px 15px 40px;
+    padding: 40px 40px 20px 40px;
     border-radius: 24px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow:
@@ -22,7 +27,27 @@
         0 -20px 40px rgba(0, 0, 0, 0.2) inset;
     text-align: center;
     animation: cardSlideIn 0.4s ease-out;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.login-card-main::-webkit-scrollbar {
+    width: 6px;
+}
+
+.login-card-main::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.login-card-main::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+}
+
+.login-card-main::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
 
 @keyframes cardSlideIn {
@@ -312,13 +337,11 @@
 .login-card-main::after {
     content: '';
     position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
+    inset: 0;
+    border-radius: inherit;
     background: radial-gradient(circle at 50% 0%,
             var(--accent-color-glow, rgba(0, 189, 122, 0.08)) 0%,
-            transparent 50%);
+            transparent 65%);
     pointer-events: none;
     z-index: -1;
 }
@@ -424,4 +447,137 @@
     height: 20px;
     border-radius: 3px;
     flex-shrink: 0;
+}
+
+/* Compact adaptive layout for Hybrid mode (Azuriom + Microsoft shown simultaneously) */
+.login-card-main.mode-hybrid {
+    width: 430px;
+    padding: 24px 32px 18px 32px;
+}
+
+.login-card-main.mode-hybrid .login-header {
+    margin-bottom: 12px;
+}
+
+.login-card-main.mode-hybrid .login-icon {
+    font-size: 38px;
+    margin-bottom: 8px;
+}
+
+.login-card-main.mode-hybrid .login-title {
+    font-size: 22px;
+}
+
+.login-card-main.mode-hybrid .info-login {
+    min-height: 18px;
+    margin-bottom: 10px;
+    font-size: 12.5px;
+}
+
+.login-card-main.mode-hybrid .login-form {
+    gap: 10px;
+}
+
+.login-card-main.mode-hybrid .azuriom-auth-section {
+    gap: 10px;
+}
+
+.login-card-main.mode-hybrid .login-input-group label {
+    font-size: 11px;
+    margin-bottom: 5px;
+}
+
+.login-card-main.mode-hybrid .login-input {
+    padding: 11px 16px;
+    font-size: 14px;
+    border-radius: 12px;
+}
+
+.login-card-main.mode-hybrid .login-links {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 2px 0;
+}
+
+.login-card-main.mode-hybrid .password-reset,
+.login-card-main.mode-hybrid .new-user {
+    font-size: 12px;
+}
+
+.login-card-main.mode-hybrid .login-btn {
+    padding: 12px 20px;
+    font-size: 14.5px;
+    margin-top: 4px;
+    border-radius: 12px;
+}
+
+.login-card-main.mode-hybrid .auth-divider {
+    margin: 2px 0;
+}
+
+.login-card-main.mode-hybrid .microsoft-auth-section {
+    gap: 8px;
+    padding-bottom: 4px;
+}
+
+.login-card-main.mode-hybrid .microsoft-login-btn {
+    padding: 12px 18px;
+    font-size: 14px;
+    border-radius: 12px;
+}
+
+.login-card-main.mode-hybrid .cancel {
+    padding: 6px;
+    margin-top: 0;
+    font-size: 13px;
+}
+
+/* Safety compaction on shorter window heights (e.g. minHeight 552px) */
+@media (max-height: 640px) {
+    .login-content {
+        padding: 32px 16px 14px 16px;
+    }
+
+    .login-card-main {
+        max-height: calc(100vh - 46px);
+        padding: 22px 28px 16px 28px;
+    }
+
+    .login-card-main .login-header {
+        margin-bottom: 10px;
+    }
+
+    .login-card-main .login-icon {
+        font-size: 36px;
+        margin-bottom: 6px;
+    }
+
+    .login-card-main .login-title {
+        font-size: 20px;
+    }
+
+    .login-card-main .info-login {
+        min-height: 16px;
+        margin-bottom: 8px;
+    }
+
+    .login-card-main .login-form,
+    .login-card-main .azuriom-auth-section {
+        gap: 8px;
+    }
+
+    .login-card-main .login-input {
+        padding: 10px 14px;
+        font-size: 13.5px;
+    }
+
+    .login-card-main .login-btn,
+    .login-card-main .microsoft-login-btn {
+        padding: 11px 16px;
+        font-size: 13.5px;
+        margin-top: 2px;
+    }
 }

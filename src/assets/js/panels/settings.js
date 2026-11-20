@@ -20,6 +20,10 @@ import {
     isInstanceModded,
     resolveInstanceRam,
     getActiveInstance,
+    resolveModsUrlForInstance,
+    setOptionalModPreference,
+    deleteAccountOptionalModPreferences,
+    syncOptionalModsForAccount,
     Slider,
     showLoadingOverlay,
     hideLoadingOverlay,
@@ -30,7 +34,6 @@ import {
     resolveGameRoot,
     getSystemMemory,
     authAzuriomLogout,
-    listOptionalMods,
     toggleOptionalMod,
     uploadPlayerSkin,
     setMicrosoftCape,
@@ -114,6 +117,7 @@ class Settings {
 
         window.addEventListener('account-changed', () => {
             this._skinDirty = true;
+            this._modsDirty = true;
             if (this._isPanelActive) {
                 this.refreshDirtySections();
             }
@@ -545,6 +549,11 @@ class Settings {
                 }
 
                 await this.database.delete(targetUuid, 'accounts');
+                await deleteAccountOptionalModPreferences(
+                    this.database,
+                    storedAcc || targetUuid,
+                    this.config
+                );
                 accountCard.remove();
 
                 const remaining = await this.database.getAll('accounts');
@@ -648,28 +657,27 @@ class Settings {
     }
 
     // -----------------------------------------------------------------------
-    // Optional Mods (Instance-Scoped via Tauri Rust Commands)
+    // Optional Mods (Account + Instance-Scoped via Tauri Rust Commands)
     // -----------------------------------------------------------------------
 
     getModsUrlForInstance(instance) {
-        if (instance?.mods_url) return instance.mods_url;
-        const rawSettings = this.meta?.settings_url || '';
-        const base = rawSettings.endsWith('/') ? rawSettings : `${rawSettings}/`;
-        if (instance?.slug && instance.slug !== 'default') {
-            return this.meta?.env === 'azuriom'
-                ? `${base}api/centralcorp/instances/${instance.slug}/mods`
-                : `${base}utils/instances/${instance.slug}/mods`;
-        }
-        return this.meta?.env === 'azuriom' ? `${base}api/centralcorp/mods` : `${base}utils/mods`;
+        return resolveModsUrlForInstance(instance, this.meta);
     }
 
     async initOptionalMods() {
         const modsListElement = document.getElementById('mods-list');
         const modsTitleElement = document.getElementById('mods-title');
         if (!modsListElement) return;
+
+        const seq = (this._modsRenderSeq = (this._modsRenderSeq || 0) + 1);
         modsListElement.innerHTML = '';
 
-        const inst = await getActiveInstance(this.config, this.database);
+        const [inst, account] = await Promise.all([
+            getActiveInstance(this.config, this.database),
+            this.getSelectedAccount(),
+        ]);
+        if (seq !== this._modsRenderSeq) return;
+
         if (!isInstanceModded(inst, this.config)) {
             await this.updateModsTabVisibility();
             return;
@@ -688,7 +696,17 @@ class Settings {
         const modsUrl = this.getModsUrlForInstance(inst);
 
         try {
-            const mods = await listOptionalMods(gameRoot, slug, modsUrl);
+            const mods = await syncOptionalModsForAccount({
+                db: this.database,
+                cfg: this.config,
+                meta: this.meta,
+                account,
+                instance: inst,
+                modsUrl,
+                throwOnFetchError: true,
+            });
+            if (seq !== this._modsRenderSeq) return;
+
             if (!Array.isArray(mods) || mods.length === 0) {
                 const emptyDiv = document.createElement('div');
                 emptyDiv.innerHTML = `
@@ -758,6 +776,15 @@ class Settings {
                     checkbox.disabled = true;
                     try {
                         await toggleOptionalMod(gameRoot, slug, mod.file, desired);
+                        const activeAccount = (await this.getSelectedAccount()) || account;
+                        await setOptionalModPreference({
+                            db: this.database,
+                            cfg: this.config,
+                            account: activeAccount,
+                            instanceSlug: slug,
+                            modFile: mod.file,
+                            enabled: desired,
+                        });
                     } catch (err) {
                         console.error('Failed to toggle mod:', err);
                         e.target.checked = !desired;
@@ -770,6 +797,7 @@ class Settings {
             }
             modsListElement.appendChild(fragment);
         } catch (err) {
+            if (seq !== this._modsRenderSeq) return;
             console.warn('Could not load optional mods:', err);
             this.displayEmptyModsMessage(modsListElement);
         }
