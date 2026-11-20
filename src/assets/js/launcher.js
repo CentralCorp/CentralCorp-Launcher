@@ -422,9 +422,10 @@ class Launcher {
             const overlay = document.createElement('div');
             overlay.id = 'bg-transition-overlay';
             overlay.style.cssText = `
-                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                position: fixed; inset: 0; width: 100%; height: 100%;
                 z-index: -1; opacity: 0; transition: opacity 0.45s ease;
-                background-size: cover; background-position: center; pointer-events: none;
+                background-repeat: no-repeat; background-size: cover;
+                background-position: center center; pointer-events: none;
             `;
             document.body.appendChild(overlay);
         }
@@ -438,8 +439,12 @@ class Launcher {
 
         clearTimeout(this._bgSwapTimer);
         this._bgSwapTimer = setTimeout(() => {
-            document.body.style.background = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url("${finalBgUrl}") black no-repeat center center scroll`;
+            document.body.style.backgroundColor = '#000000';
+            document.body.style.backgroundImage = `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url("${finalBgUrl}")`;
+            document.body.style.backgroundRepeat = 'no-repeat';
+            document.body.style.backgroundPosition = 'center center';
             document.body.style.backgroundSize = 'cover';
+            document.body.style.backgroundAttachment = 'fixed';
             overlay.style.opacity = '0';
         }, 480);
     }
